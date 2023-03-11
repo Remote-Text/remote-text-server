@@ -12,8 +12,9 @@ async fn main() {
     let h = Hello { hello: "world" };
     let hello = warp::any()
         .map(move || warp::reply::json(&h))
+        .map(|reply| warp::reply::with_header(reply, "Access-Control-Allow-Origin", "*"));
 
     warp::serve(hello)
-        .run(([127, 0, 0, 1], 3030))
+        .run(([0, 0, 0, 0], 3030))
         .await;
 }
