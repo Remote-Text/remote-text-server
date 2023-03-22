@@ -1,3 +1,5 @@
+extern crate pretty_env_logger;
+#[macro_use] extern crate log;
 use std::io::Bytes;
 
 use chrono::{DateTime, Utc};
@@ -66,10 +68,15 @@ pub(crate) struct GitHistory {
 
 #[tokio::main]
 async fn main() {
+    pretty_env_logger::init();
+
     let cors = warp::cors().allow_any_origin();
+    let log = warp::log("remote-text-server::api");
     let api_root = warp::path("api");
 
-    let routes = api_root.and(routes::get_routes()).with(cors);
+    let routes = api_root.and(routes::get_routes())
+        .with(cors)
+        .with(log);
 
     warp::serve(routes)
         .run(([0, 0, 0, 0], 3030))
