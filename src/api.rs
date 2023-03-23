@@ -42,6 +42,17 @@ pub(crate) struct GitRef {
     pub(crate) hash: String
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub(crate) struct CompilationOutput {
+    pub(crate) state: CompilationState,
+    pub(crate) log: String
+}
+#[derive(Serialize, Deserialize, Clone)]
+pub(crate) enum CompilationState {
+    SUCCESS,
+    FAILURE
+}
+
 //***
 
 #[derive(Serialize, Deserialize, Clone)]
