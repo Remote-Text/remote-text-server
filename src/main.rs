@@ -1,5 +1,6 @@
-extern crate pretty_env_logger;
 #[macro_use] extern crate log;
+extern crate pretty_env_logger;
+
 use std::io::Bytes;
 
 use chrono::{DateTime, Utc};
@@ -11,60 +12,7 @@ use warp::path::Exact;
 
 mod routes;
 mod handlers;
-
-#[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct File {
-    name: String,
-    id: Uuid,
-    content: String
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct FileSummary {
-    name: String,
-    id: Uuid,
-    edited_time: DateTime<Utc>,
-    created_time: DateTime<Utc>
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct PreviewDetail {
-    name: String,
-    id: Uuid,
-    r#type: PreviewDetailType,
-    data: String
-}
-#[derive(Serialize, Deserialize, Clone)]
-enum PreviewDetailType {
-    PDF,
-    HTML
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct GitCommit {
-    hash: String,
-    parent: Option<String>
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct GitRef {
-    name: String,
-    hash: String
-}
-
-//***
-
-#[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct FileIDAndOptionalGitHash {
-    id: Uuid,
-    hash: Option<String>
-}
-
-#[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct GitHistory {
-    commits: Vec<GitCommit>,
-    refs: Vec<GitRef>
-}
+mod api;
 
 #[tokio::main]
 async fn main() {

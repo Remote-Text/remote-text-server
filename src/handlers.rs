@@ -5,7 +5,7 @@ use chrono::{Days, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-use crate::{File, FileIDAndOptionalGitHash, FileSummary, GitCommit, GitHistory, GitRef, PreviewDetail, PreviewDetailType};
+use crate::api::{File, FileIDAndOptionalGitHash, FileSummary, GitCommit, GitHistory, GitRef, PreviewDetail, PreviewDetailType};
 
 pub(crate) async fn list_files() -> Result<impl warp::Reply, Infallible> {
     let example_files = [FileSummary {
