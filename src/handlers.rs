@@ -11,9 +11,12 @@ use crate::api::{CompilationOutput, CompilationState, File, FileIDAndOptionalGit
 // Fetches each file/repository info for each file on disk, and return it via the api
 // -- Currently, this returns and responds with fake data
 pub(crate) async fn list_files() -> Result<impl warp::Reply, Infallible> {
+    // Do one of the following at random
     let example_files = if rand::random() {
+        // Respond with an empty list using api
         vec![]
     } else {
+        // Create a sample list of sample FileSummary objects
         vec![FileSummary {
             name: "README.md".to_string(),
             id: Uuid::nil(),
@@ -26,6 +29,7 @@ pub(crate) async fn list_files() -> Result<impl warp::Reply, Infallible> {
             created_time: Utc::now().checked_sub_days(Days::new(1)).unwrap(),
         }]
     };
+    // Respond with a sample list using api
     return Ok(warp::reply::json(&example_files));
 }
 
@@ -110,19 +114,25 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 // Save file will take a file object/instance, and will respond with a GitCommit object to the client,
 // while returning the success/failure result
 pub(crate) async fn save_file(obj: File) -> Result<Box<dyn warp::Reply>, Infallible> {
+    // Do the one of the following at random
     return if rand::random() {
+        // Create a sample GitCommit object
         let example_commit = GitCommit {
             hash: "aceaaec23664ae26d76ab66cedfb1206b9c972b1".to_string(),
             parent: None,
         };
+        // Send the sample commit via api
         Ok(Box::new(warp::reply::json(&example_commit)))
     } else if rand::random() {
+        // Create a sample GitCommit object
         let example_commit = GitCommit {
             hash: "7c570dce251232eecd2daa6bd81723ef0a1a7590".to_string(),
             parent: Some("aceaaec23664ae26d76ab66cedfb1206b9c972b1".to_string()),
         };
+        // Send the sample commit via api
         Ok(Box::new(warp::reply::json(&example_commit)))
     } else {
+        // Send the "FORBIDDEN" code via api
         Ok(Box::new(StatusCode::FORBIDDEN))
     }
 }
@@ -131,17 +141,21 @@ pub(crate) async fn save_file(obj: File) -> Result<Box<dyn warp::Reply>, Infalli
 // client, while returning a result
 // -- Currently, this request will randomly respond with SUCCESS, FAILURE, or NOT FOUND
 pub(crate) async fn preview_file(obj: FileIDAndOptionalGitHash) -> Result<Box<dyn warp::Reply>, Infallible> {
+    // Do the one of the following at random
     return if rand::random() {
+        // Reply with a JSON file containing a "SUCCESS" message
         Ok(Box::new(warp::reply::json(&CompilationOutput {
             state: CompilationState::SUCCESS,
             log: "".to_string(),
         })))
     } else if rand::random() {
+        // Reply with a JSON file containing a "SUCCESS" message
         Ok(Box::new(warp::reply::json(&CompilationOutput {
             state: CompilationState::FAILURE,
             log: "".to_string(),
         })))
     } else {
+        // Send the "NOT_FOUND" code via api
         Ok(Box::new(StatusCode::NOT_FOUND))
     };
 }
@@ -150,7 +164,9 @@ pub(crate) async fn preview_file(obj: FileIDAndOptionalGitHash) -> Result<Box<dy
 // while also returning a result
 // -- Currently, this request responds with a PreviewDetail object of README or a NOT_FOUND message at random
 pub(crate) async fn get_preview(obj: FileIDAndOptionalGitHash) -> Result<Box<dyn warp::Reply>, Infallible> {
+    // Do one of the following at random
     return if rand::random() {
+        // Create a sample PreviewDetail object using README.md file
         let result = PreviewDetail {
             name: "README.md".to_string(),
             id: obj.id,
@@ -209,6 +225,8 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="
     welcome!</p>
         "###)
         };
+
+        // Respond with the sample using api
         Ok(Box::new(warp::reply::json(&result)))
     // } else if rand::random() {
     //     let pdf = 
@@ -220,6 +238,7 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="
     //     };
     //     Ok(Box::new(warp::reply::json(&result)))
     } else {
+        // Send the "NOT_FOUND" code via api
         Ok(Box::new(StatusCode::NOT_FOUND))
     };
 }
@@ -235,7 +254,9 @@ pub(crate) struct IdOnly {
 // -- Currently, this request responds with either fake data, empty history, or an NOT FOUND code
 // -- at random
 pub(crate) async fn get_history(file_id: IdOnly) -> Result<Box<dyn warp::Reply>, Infallible> {
+    // Do the one of the following at random
     if rand::random() {
+        // Create a sample GitHistory object
         let example_git_history = GitHistory {
             commits: vec![
                 GitCommit { hash: "aceaaec23664ae26d76ab66cedfb1206b9c972b1".to_string(), parent: None },
@@ -245,14 +266,18 @@ pub(crate) async fn get_history(file_id: IdOnly) -> Result<Box<dyn warp::Reply>,
                 GitRef { name: "main".to_string(), hash: "7c570dce251232eecd2daa6bd81723ef0a1a7590".to_string() }
             ],
         };
+        // Respond with the sample via api
         return Ok(Box::new(warp::reply::json(&example_git_history)))
     } else if rand::random() {
+        // Create a sample empty GitHistory object
         let example_git_history = GitHistory {
             commits: vec![],
             refs: vec![],
         };
+        // Respond with the sample via api
         return Ok(Box::new(warp::reply::json(&example_git_history)))
     } else {
+        // Send the "NOT_FOUND" code via api
         return Ok(Box::new(StatusCode::NOT_FOUND));
     }
 }
