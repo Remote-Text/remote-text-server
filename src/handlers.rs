@@ -8,6 +8,8 @@ use warp::hyper::StatusCode;
 
 use crate::api::{CompilationOutput, CompilationState, File, FileIDAndOptionalGitHash, FileSummary, GitCommit, GitHistory, GitRef, PreviewDetail, PreviewDetailType};
 
+// Fetches each file/repository info for each file on disk, and return it via the api
+// -- Currently, this returns and responds with fake data
 pub(crate) async fn list_files() -> Result<impl warp::Reply, Infallible> {
     let example_files = if rand::random() {
         vec![]
@@ -27,11 +29,15 @@ pub(crate) async fn list_files() -> Result<impl warp::Reply, Infallible> {
     return Ok(warp::reply::json(&example_files));
 }
 
+// The NameOnly strut allows a string to be serialized into JSON data which warp
+// formats and uses easier
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct NameOnly {
     name: String
 }
+// Create file creates a new file object, and returns the data to the client via the api
 pub(crate) async fn create_file(name: NameOnly) -> Result<impl warp::Reply, Infallible> {
+    // Create a new file summary strut
     let example_file = FileSummary {
         name: name.name,
         id: Uuid::new_v4(),
@@ -41,6 +47,10 @@ pub(crate) async fn create_file(name: NameOnly) -> Result<impl warp::Reply, Infa
     return Ok(warp::reply::json(&example_file));
 }
 
+// Get file will take a file ID/git hash and, if the file is found successfully, send the file
+// to the client while returning a result of success or failure
+// -- Currently, this function randomly responds with either a "file not found" message or
+// -- sends the README file to the client
 pub(crate) async fn get_file(obj: FileIDAndOptionalGitHash) -> Result<Box<dyn warp::Reply>, Infallible> {
     return if rand::random() {
         Ok(Box::new(StatusCode::NOT_FOUND))
@@ -97,6 +107,8 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
     }
 }
 
+// Save file will take a file object/instance, and will respond with a GitCommit object to the client,
+// while returning the success/failure result
 pub(crate) async fn save_file(obj: File) -> Result<Box<dyn warp::Reply>, Infallible> {
     return if rand::random() {
         let example_commit = GitCommit {
@@ -115,6 +127,9 @@ pub(crate) async fn save_file(obj: File) -> Result<Box<dyn warp::Reply>, Infalli
     }
 }
 
+// Preview file will take a file ID with an optional git hash, and respond with a success or failure message to the
+// client, while returning a result
+// -- Currently, this request will randomly respond with SUCCESS, FAILURE, or NOT FOUND
 pub(crate) async fn preview_file(obj: FileIDAndOptionalGitHash) -> Result<Box<dyn warp::Reply>, Infallible> {
     return if rand::random() {
         Ok(Box::new(warp::reply::json(&CompilationOutput {
@@ -131,6 +146,9 @@ pub(crate) async fn preview_file(obj: FileIDAndOptionalGitHash) -> Result<Box<dy
     };
 }
 
+// Get preview will take a file ID with an optional git hash, and respond with a preview file object to the client,
+// while also returning a result
+// -- Currently, this request responds with a PreviewDetail object of README or a NOT_FOUND message at random
 pub(crate) async fn get_preview(obj: FileIDAndOptionalGitHash) -> Result<Box<dyn warp::Reply>, Infallible> {
     return if rand::random() {
         let result = PreviewDetail {
@@ -206,10 +224,16 @@ class="sourceCode bash"><code class="sourceCode bash"><span id="cb1-1"><a href="
     };
 }
 
+// The IdOnly strut allows a string to be serialized into JSON data which warp
+// formats and uses easier
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct IdOnly {
     id: Uuid
 }
+// Get History takes a file ID, and responds with a list of GitCommit objects and a list of
+// GitRef objects, representing the file's git lineage, while returning the result
+// -- Currently, this request responds with either fake data, empty history, or an NOT FOUND code
+// -- at random
 pub(crate) async fn get_history(file_id: IdOnly) -> Result<Box<dyn warp::Reply>, Infallible> {
     if rand::random() {
         let example_git_history = GitHistory {
