@@ -41,7 +41,10 @@ async fn main() {
     pretty_env_logger::init();
 
     // Set up the warp wrapper with CORS (Cross-Origin Resource Sharing), allowing any origin point
-    let cors = warp::cors().allow_any_origin();
+    let cors = warp::cors()
+        .allow_any_origin()
+        .allow_header("content-type")
+        .allow_methods(vec!["GET", "POST", "PUT", "PATCH", "DELETE"]);
     // Sets up logging for api requests
     let log = warp::log("remote-text-server::api");
     // Sets up the root path for the api
