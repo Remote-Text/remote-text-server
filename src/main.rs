@@ -34,11 +34,19 @@ warp:
 mod routes;
 mod handlers;
 mod api;
+mod previewing;
+mod files;
 
 #[tokio::main]
 async fn main() {
     // Initialize pretty_env_logger so we can get organized/colorful logs
     pretty_env_logger::init();
+
+    let repositories = files::repos();
+    println!("REPOS");
+    for (uuid, _) in repositories.lock().unwrap().iter() {
+        println!("{}", uuid);
+    }
 
     // Set up the warp wrapper with CORS (Cross-Origin Resource Sharing), allowing any origin point
     let cors = warp::cors().allow_any_origin();
@@ -48,7 +56,8 @@ async fn main() {
     let api_root = warp::path("api");
 
     // Creates a chain of filters that checks/runs each function in the API
-    let routes = api_root.and(routes::get_routes())
+    let routes = api_root.and(routes::get_routes(repositories.clone()))
+        // .map(|reply| warp::reply::with_header(reply, "Access-Control-Allow-Origin", "*"))
         .with(cors)
         .with(log);
 
