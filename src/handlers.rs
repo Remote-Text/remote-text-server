@@ -1,3 +1,4 @@
+use std::any::Any;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::ffi::OsString;
@@ -15,28 +16,12 @@ use uuid::Uuid;
 use warp::fs::file;
 use warp::hyper::StatusCode;
 
-use crate::api::{CompilationOutput, CompilationState, File, FileIDAndOptionalGitHash, FileSummary, GitCommit, GitHistory, GitRef, PreviewDetail, PreviewDetailType};
 use crate::{files, previewing};
+use crate::api::{CompilationOutput, CompilationState, File, FileIDAndOptionalGitHash, FileSummary, GitCommit, GitHistory, GitRef, PreviewDetail, PreviewDetailType};
 use crate::files::repos;
 
 pub(crate) async fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<impl warp::Reply, Infallible> {
     return Ok(warp::reply::json(&files::list_files(repos)));
-    let example_files = if rand::random() {
-        vec![]
-    } else {
-        vec![FileSummary {
-            name: "README.md".to_string(),
-            id: Uuid::nil(),
-            edited_time: Utc::now(),
-            created_time: Utc::now(),
-        }, FileSummary {
-            name: "main.rs".to_string(),
-            id: Uuid::new_v4(),
-            edited_time: Utc::now().checked_sub_days(Days::new(2)).unwrap(),
-            created_time: Utc::now().checked_sub_days(Days::new(1)).unwrap(),
-        }]
-    };
-    return Ok(warp::reply::json(&example_files));
 }
 
 #[derive(Serialize, Deserialize, Clone)]
