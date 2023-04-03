@@ -118,7 +118,15 @@ pub(crate) async fn get_file(obj: FileIDAndOptionalGitHash, repos: Arc<Mutex<Has
     }
 }
 
-pub(crate) async fn save_file(obj: File, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+#[derive(Serialize, Deserialize, Clone)]
+pub(crate) struct FileAndHashAndBranchName {
+    name: String,
+    id: Uuid,
+    content: String,
+    parent: String,
+    branch: String
+}
+pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
     let repos = repos.lock().unwrap();
     let Some(repo) = repos.get(&obj.id) else {
         return Ok(Box::new(StatusCode::NOT_FOUND));
