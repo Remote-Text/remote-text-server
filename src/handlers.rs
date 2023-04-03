@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::ffi::OsString;
+use std::io::Write;
 use std::net::SocketAddr;
 use std::ops::Index;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use base64::{engine, Engine};
@@ -38,24 +40,34 @@ pub(crate) async fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> 
 }
 
 #[derive(Serialize, Deserialize, Clone)]
-pub(crate) struct NameOnly {
-    name: String
+pub(crate) struct NameAndOptionalContent {
+    name: String,
+    content: Option<String>
 }
-pub(crate) async fn create_file(name: NameOnly, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<impl warp::Reply, Infallible> {
+pub(crate) async fn create_file(name: NameAndOptionalContent, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<impl warp::Reply, Infallible> {
+    let now = Utc::now();
     let uuid = Uuid::new_v4();
     let Ok(repo) = Repository::init(uuid.to_string()) else {
         panic!();
     };
-    let now = Utc::now();
     let time = Time::new(now.timestamp(), 0);
     let them = if addr.is_some() {
         addr.unwrap().to_string()
     } else {
         "".to_string()
     };
+    let fp = Path::new(uuid.to_string().as_str()).join(&name.name);
+    let Ok(mut file) = std::fs::File::create(fp) else {
+        panic!("Unable to create file!")
+    };
+    if let Some(content) = name.content {
+        file.write_all(content.as_ref()).unwrap();
+    }
     let their_sig = Signature::new(&them, "blinky@remote-text.com", &time).unwrap();
     let our_sig = Signature::new("Remote Text", "blinky@remote-text.com", &time).unwrap();
     let mut index = repo.index().unwrap();
+    index.add_all(&["."], IndexAddOption::DEFAULT, None).unwrap();
+    index.write();
     let tree_id = index.write_tree().unwrap();
     let co = repo.commit(Some("HEAD"), &their_sig, &our_sig, "", &repo.find_tree(tree_id).unwrap(), &vec![]).unwrap();
     println!("{}", co);
