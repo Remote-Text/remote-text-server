@@ -224,25 +224,38 @@ pub(crate) async fn get_preview(obj: FileIDAndOptionalGitHash) -> Result<Box<dyn
 pub(crate) struct IdOnly {
     id: Uuid
 }
-pub(crate) async fn get_history(file_id: IdOnly) -> Result<Box<dyn warp::Reply>, Infallible> {
-    if rand::random() {
-        let example_git_history = GitHistory {
-            commits: vec![
-                GitCommit { hash: "aceaaec23664ae26d76ab66cedfb1206b9c972b1".to_string(), parent: None },
-                GitCommit { hash: "7c570dce251232eecd2daa6bd81723ef0a1a7590".to_string(), parent: Some("aceaaec23664ae26d76ab66cedfb1206b9c972b1".to_string()) }
-            ],
-            refs: vec![
-                GitRef { name: "main".to_string(), hash: "7c570dce251232eecd2daa6bd81723ef0a1a7590".to_string() }
-            ],
-        };
-        return Ok(Box::new(warp::reply::json(&example_git_history)))
-    } else if rand::random() {
-        let example_git_history = GitHistory {
-            commits: vec![],
-            refs: vec![],
-        };
-        return Ok(Box::new(warp::reply::json(&example_git_history)))
-    } else {
+pub(crate) async fn get_history(file_id: IdOnly, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+    let repos = repos.lock().unwrap();
+    let Some(repo) = repos.get(&file_id.id) else {
         return Ok(Box::new(StatusCode::NOT_FOUND));
-    }
+    };
+    let odb = repo.odb().unwrap();
+    let mut commits = vec![];
+    odb.foreach(|oid| {
+        let Ok(commit) = repo.find_commit(*oid) else {
+            return true;
+        };
+        let parent = commit.parent_ids().next().map(|cm| cm.to_string());
+        // let parent = commit.parent(1).ok().map(|cm| cm.id().to_string());
+        commits.push(GitCommit { hash: commit.id().to_string(), parent });
+        true
+    }).unwrap();
+    // repo.references().iter().next().unwrap().
+    // for _ref in repo.references().iter() {
+    //     _ref
+    // }
+    let refs = repo.branches(None).unwrap().map(|b| {
+        let (branch, branch_type) = b.unwrap();
+        let name = branch.name().unwrap().unwrap().to_string();
+        let hash = branch.get().peel_to_commit().unwrap().id().to_string();
+        return GitRef {
+            name,
+            hash,
+        }
+    }).collect::<Vec<GitRef>>();
+    let history = GitHistory {
+        commits,
+        refs,
+    };
+    return Ok(Box::new(warp::reply::json(&history)))
 }
