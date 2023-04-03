@@ -29,6 +29,15 @@ pub(crate) struct NameAndOptionalContent {
     name: String,
     content: Option<String>
 }
+
+/*
+// CREATE FILE //
+This function will take the file name (and optional content), an address, and a corresponding
+repository (?) to create a new file instance, as well as start its git history.
+
+TODO: Comment create_file() functionality & general description
+
+*/
 pub(crate) async fn create_file(name: NameAndOptionalContent, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<impl warp::Reply, Infallible> {
     let now = Utc::now();
     let uuid = Uuid::new_v4();
@@ -73,7 +82,13 @@ pub(crate) async fn create_file(name: NameAndOptionalContent, addr: Option<Socke
     return Ok(warp::reply::json(&example_file));
 }
 
-//TODO: ref should be required
+/*
+// GET FILE //
+
+TODO: Comment get_file() functionality & general description
+TODO: ref should be required
+
+*/
 pub(crate) async fn get_file(obj: FileIDAndOptionalGitHash, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
     log::trace!(target: "remote_text_server::get_file", "[{}] Acquiring lock on hash map", &obj.id);
     let repos = repos.lock().unwrap();
@@ -147,8 +162,15 @@ pub(crate) struct FileAndHashAndBranchName {
     parent: String,
     branch: String
 }
+
+/*
+// SAVE FILE //
+
+TODO: Comment save_file() functionality & general description
 //TODO: make commit off of parent
 //TODO: update branch to point to new commit
+
+*/
 pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
     log::trace!(target: "remote_text_server::save_file", "[{}] Acquiring lock on hash map", &obj.id);
     let repos = repos.lock().unwrap();
@@ -219,7 +241,14 @@ pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<Socket
     return Ok(Box::new(warp::reply::json(&gc)));
 }
 
-//TODO
+/*
+// PREVIEW FILE //
+
+
+TODO: Comment preview_file() functionality & general description
+TODO: do
+
+*/
 pub(crate) async fn preview_file(obj: FileIDAndOptionalGitHash) -> Result<Box<dyn warp::Reply>, Infallible> {
     return if rand::random() {
         Ok(Box::new(warp::reply::json(&CompilationOutput {
@@ -236,7 +265,14 @@ pub(crate) async fn preview_file(obj: FileIDAndOptionalGitHash) -> Result<Box<dy
     };
 }
 
-//TODO
+/*
+// GET PREVIEW //
+
+
+TODO: Comment get_preview() functionality & general description
+TODO: do
+
+*/
 pub(crate) async fn get_preview(obj: FileIDAndOptionalGitHash) -> Result<Box<dyn warp::Reply>, Infallible> {
     // if files::file_exists(obj.id) {
     //
@@ -251,6 +287,13 @@ pub(crate) async fn get_preview(obj: FileIDAndOptionalGitHash) -> Result<Box<dyn
 pub(crate) struct IdOnly {
     id: Uuid
 }
+
+/*
+// GET HISTORY //
+
+TODO: Comment get_history() functionality & general description
+
+*/
 pub(crate) async fn get_history(file_id: IdOnly, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
     log::trace!(target: "remote_text_server::get_history", "[{}] Acquiring lock on hash map", &file_id.id);
     let repos = repos.lock().unwrap();
