@@ -225,7 +225,13 @@ pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<Socket
         log::error!(target: "remote_text_server::save_file", "[{}] Unable to locate parent commit", &obj.id);
         return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
     };
-    log::trace!(target: "remote_text_server::save_file", "[{}] Located parent commit", &obj.id);
+    log::trace!(target: "remote_text_server::save_file", "[{}] Located parent commit ({})", &obj.id, par.id().to_string());
+    log::trace!(target: "remote_text_server::save_file", "[{}] Detaching head", &obj.id);
+    repo.set_head_detached(parent_oid).unwrap();
+    log::trace!(target: "remote_text_server::save_file", "[{}] Detached head", &obj.id);
+    log::trace!(target: "remote_text_server::save_file", "[{}] Creating branch pointing to parent commit ({})", &obj.id, obj.branch);
+    repo.branch(obj.branch.as_str(), &par, true).unwrap();
+    log::trace!(target: "remote_text_server::save_file", "[{}] Created branch", &obj.id);
     let now = Utc::now();
     let time = Time::new(now.timestamp(), 0);
     let them = if addr.is_some() {
@@ -239,8 +245,12 @@ pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<Socket
     index.add_all(&["."], IndexAddOption::DEFAULT, None).unwrap();
     index.write();
     let tree_id = index.write_tree().unwrap();
-    let co = repo.commit(Some(obj.branch.as_str()), &their_sig, &our_sig, "", &repo.find_tree(tree_id).unwrap(), &[&par]).unwrap();
+    log::trace!(target: "remote_text_server::save_file", "[{}] Making commit", &obj.id);
+    let co = repo.commit(Some(format!("refs/heads/{}", obj.branch).as_str()), &their_sig, &our_sig, "", &repo.find_tree(tree_id).unwrap(), &[&par]).unwrap();
     log::trace!(target: "remote_text_server::save_file", "[{}] Made commit ({})", &obj.id, co.to_string());
+    log::trace!(target: "remote_text_server::save_file", "[{}] Checking out new commit", &obj.id);
+    repo.set_head(format!("refs/heads/{}", obj.branch).as_str()).unwrap();
+    log::trace!(target: "remote_text_server::save_file", "[{}] Checked out new commit", &obj.id);
 
     let gc = GitCommit {
         hash: co.to_string(),
