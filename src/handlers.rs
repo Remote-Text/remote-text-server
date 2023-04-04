@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use base64::{engine, Engine};
 use chrono::{DateTime, Days, Utc};
-use git2::{IndexAddOption, Repository, Signature, Time};
+use git2::{IndexAddOption, Oid, Repository, Signature, Time};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use warp::fs::file;
@@ -217,7 +217,15 @@ pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<Socket
     log::trace!(target: "remote_text_server::save_file", "[{}] Wrote content to {}", &obj.id, &obj.name);
 
     //Perform commit
-    let par = repo.head().unwrap().peel_to_commit().unwrap(); //should read from JSON obj
+    let Ok(parent_oid) = Oid::from_str(obj.parent.as_str()) else {
+        log::error!(target: "remote_text_server::save_file", "[{}] Parent is not a valid git hash ({})", &obj.id, obj.parent);
+        return Ok(Box::new(StatusCode::BAD_REQUEST));
+    };
+    let Ok(par) = repo.find_commit(parent_oid) else {
+        log::error!(target: "remote_text_server::save_file", "[{}] Unable to locate parent commit", &obj.id);
+        return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+    };
+    log::trace!(target: "remote_text_server::save_file", "[{}] Located parent commit", &obj.id);
     let now = Utc::now();
     let time = Time::new(now.timestamp(), 0);
     let them = if addr.is_some() {
@@ -231,7 +239,7 @@ pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<Socket
     index.add_all(&["."], IndexAddOption::DEFAULT, None).unwrap();
     index.write();
     let tree_id = index.write_tree().unwrap();
-    let co = repo.commit(Some("HEAD"), &their_sig, &our_sig, "", &repo.find_tree(tree_id).unwrap(), &[&par]).unwrap();
+    let co = repo.commit(Some(obj.branch.as_str()), &their_sig, &our_sig, "", &repo.find_tree(tree_id).unwrap(), &[&par]).unwrap();
     log::trace!(target: "remote_text_server::save_file", "[{}] Made commit ({})", &obj.id, co.to_string());
 
     let gc = GitCommit {
