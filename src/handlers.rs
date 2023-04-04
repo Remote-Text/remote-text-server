@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 use base64::{engine, Engine};
 use chrono::{DateTime, Days, Utc};
 use git2::{IndexAddOption, Oid, Repository, Signature, Time};
+use git2::build::CheckoutBuilder;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use warp::fs::file;
@@ -82,26 +83,45 @@ pub(crate) async fn create_file(name: NameAndOptionalContent, addr: Option<Socke
     return Ok(warp::reply::json(&example_file));
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+pub(crate) struct FileIDAndGitHash {
+    pub(crate) id: Uuid,
+    pub(crate) hash: String
+}
+
 /*
 // GET FILE //
 
 TODO: Comment get_file() functionality & general description
-TODO: ref should be required
 
 */
-pub(crate) async fn get_file(obj: FileIDAndOptionalGitHash, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+pub(crate) async fn get_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
     log::trace!(target: "remote_text_server::get_file", "[{}] Acquiring lock on hash map", &obj.id);
     let repos = repos.lock().unwrap();
     let Some(repo) = repos.get(&obj.id) else {
         log::info!(target: "remote_text_server::get_file", "[{}] Request made to get nonexistent file", &obj.id);
         return Ok(Box::new(StatusCode::NOT_FOUND));
     };
-    if let Some(hash) = obj.hash {
-        log::trace!(target: "remote_text_server::get_file", "[{}] Checking out {}", &obj.id, hash);
-        repo.set_head(hash.as_str()).unwrap();
-    }
-    // repo.set_head(obj.hash.unwrap_or("HEAD".to_string()).as_str()).unwrap();
-    repo.checkout_head(None).unwrap();
+    /*
+    repo.set_head(obj.hash.as_str()).unwrap();
+     */
+    let Ok(oid) = Oid::from_str(obj.hash.as_str()) else {
+        log::error!(target: "remote_text_server::get_file", "[{}] Cannot construct OID from hash {}", &obj.id, obj.hash);
+        return Ok(Box::new(StatusCode::BAD_REQUEST));
+    };
+    log::trace!(target: "remote_text_server::get_file", "[{}] Setting HEAD to {}", &obj.id, oid.to_string());
+    let Ok(_) = repo.set_head_detached(oid) else {
+        //The hash we were given does not exist
+        log::info!(target: "remote_text_server::get_file", "[{}] Unable to set HEAD (invalid hash)", &obj.id);
+        return Ok(Box::new(StatusCode::BAD_REQUEST));
+    };
+    log::trace!(target: "remote_text_server::get_file", "[{}] Set HEAD", &obj.id);
+    // repo.checkout_head(Some(CheckoutBuilder::new().force())).unwrap();
+    log::trace!(target: "remote_text_server::get_file", "[{}] Checking out HEAD", &obj.id);
+    let Ok(_) = repo.checkout_head(None) else {
+        log::error!(target: "remote_text_server::get_file", "[{}] Unable to checkout", &obj.id);
+        return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+    };
     if std::path::Path::new(repo.path()).exists() {
         if let Some(path) = repo.path().parent() {
             if let Ok(entries) = std::fs::read_dir(path) {
