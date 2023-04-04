@@ -15,7 +15,7 @@ The server runs on port 3030, and should be accessible from anywhere
 ## Viewing logs
 
 ```
-RUST_LOG=remote-text-server::api cargo run
+RUST_LOG=remote_text_server cargo run
 ```
 
 ## Cross-compiling for blinky

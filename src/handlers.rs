@@ -41,20 +41,25 @@ TODO: Comment create_file() functionality & general description
 pub(crate) async fn create_file(name: NameAndOptionalContent, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<impl warp::Reply, Infallible> {
     let now = Utc::now();
     let uuid = Uuid::new_v4();
+    log::info!(target: "remote_text_server::create_file", "[{}] Creating new file", uuid);
     let Ok(repo) = Repository::init(uuid.to_string()) else {
+        log::error!(target: "remote_text_server::create_file", "[{}] Cannot create repository", uuid);
         panic!();
     };
     let time = Time::new(now.timestamp(), 0);
     let them = if addr.is_some() {
         addr.unwrap().to_string()
     } else {
-        "".to_string()
+        log::warn!(target: "remote_text_server::create_file", "[{}] Non-socket connection", uuid);
+        "Non Socket Remote User".to_string()
     };
     let fp = Path::new(uuid.to_string().as_str()).join(&name.name);
     let Ok(mut file) = std::fs::File::create(fp) else {
+        log::error!(target: "remote_text_server::create_file", "[{}] Unable to create file", uuid);
         panic!("Unable to create file!")
     };
     if let Some(content) = name.content {
+        log::trace!(target: "remote_text_server::create_file", "[{}] Writing initial content to file", uuid);
         file.write_all(content.as_ref()).unwrap();
     }
     let their_sig = Signature::new(&them, "blinky@remote-text.com", &time).unwrap();
@@ -64,29 +69,35 @@ pub(crate) async fn create_file(name: NameAndOptionalContent, addr: Option<Socke
     index.write();
     let tree_id = index.write_tree().unwrap();
     let co = repo.commit(Some("HEAD"), &their_sig, &our_sig, "", &repo.find_tree(tree_id).unwrap(), &vec![]).unwrap();
-    println!("{}", co);
+    log::info!(target: "remote_text_server::create_file", "[{}] Made initial commit ({})", uuid, co.to_string());
     let example_file = FileSummary {
         name: name.name,
         id: uuid,
         edited_time: now,
         created_time: now,
     };
+    log::trace!(target: "remote_text_server::create_file", "[{}] Inserting new repo into hash map", uuid);
     repos.lock().unwrap().insert(uuid, repo);
+    log::trace!(target: "remote_text_server::create_file", "[{}] Inserted new repo into hash map", uuid);
     return Ok(warp::reply::json(&example_file));
 }
+
 
 /*
 // GET FILE //
 
 TODO: Comment get_file() functionality & general description
-
+TODO: ref should be required
 */
 pub(crate) async fn get_file(obj: FileIDAndOptionalGitHash, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+    log::trace!(target: "remote_text_server::get_file", "[{}] Acquiring lock on hash map", &obj.id);
     let repos = repos.lock().unwrap();
     let Some(repo) = repos.get(&obj.id) else {
+        log::info!(target: "remote_text_server::get_file", "[{}] Request made to get nonexistent file", &obj.id);
         return Ok(Box::new(StatusCode::NOT_FOUND));
     };
     if let Some(hash) = obj.hash {
+        log::trace!(target: "remote_text_server::get_file", "[{}] Checking out {}", &obj.id, hash);
         repo.set_head(hash.as_str()).unwrap();
     }
     // repo.set_head(obj.hash.unwrap_or("HEAD".to_string()).as_str()).unwrap();
@@ -107,27 +118,37 @@ pub(crate) async fn get_file(obj: FileIDAndOptionalGitHash, repos: Arc<Mutex<Has
                     })
                     .collect::<Vec<_>>()
                     .first() {
+                    let Ok(filename) = fname.clone().into_string() else {
+                        log::error!(target: "remote_text_server::get_file", "[{}] Cannot convert filename '{:?}' to string", &obj.id, fname.clone());
+                        return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+                    };
+                    log::info!(target: "remote_text_server::get_file", "[{}] Found file {}", &obj.id, filename);
                     return Ok(Box::new(warp::reply::json(&File {
-                        name: fname.clone().into_string().unwrap(),
+                        name: filename,
                         id: obj.id,
                         content: content.to_string(),
                     })));
                 } else {
-                    return Ok(Box::new(warp::reply::json(&File {
-                        name: "".to_string(),
-                        id: obj.id,
-                        content: "".to_string(),
-                    })));
+                    log::error!(target: "remote_text_server::get_file", "[{}] No file found in repo", &obj.id);
+                    return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+                    // return Ok(Box::new(warp::reply::json(&File {
+                    //     name: "".to_string(),
+                    //     id: obj.id,
+                    //     content: "".to_string(),
+                    // })));
                 }
             } else {
+                log::error!(target: "remote_text_server::get_file", "[{}] Cannot read repo dir", &obj.id);
                 eprintln!("Cannot read repo dir for UUID {}", obj.id);
                 return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
             }
         } else {
+            log::error!(target: "remote_text_server::get_file", "[{}] Parent to git dir does not exist", &obj.id);
             eprintln!("Parent to git dir does not exist for UUID {}", obj.id);
             return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
         }
     } else {
+        log::error!(target: "remote_text_server::get_file", "[{}] No repo exists", &obj.id);
         eprintln!("No repo exists for UUID {}", obj.id);
         return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
     }
@@ -146,17 +167,22 @@ pub(crate) struct FileAndHashAndBranchName {
 // SAVE FILE //
 
 TODO: Comment save_file() functionality & general description
-
+TODO: make commit off of parent
+TODO: update branch to point to new commit
 */
 pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+    log::trace!(target: "remote_text_server::save_file", "[{}] Acquiring lock on hash map", &obj.id);
     let repos = repos.lock().unwrap();
     let Some(repo) = repos.get(&obj.id) else {
+        log::info!(target: "remote_text_server::save_file", "[{}] Request made to save nonexistent file", &obj.id);
         return Ok(Box::new(StatusCode::NOT_FOUND));
     };
     let Some(path) = repo.path().parent() else {
+        log::error!(target: "remote_text_server::save_file", "[{}] Parent to git dir cannot be found", &obj.id);
         return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
     };
     if !path.exists() {
+        log::trace!(target: "remote_text_server::save_file", "[{}] Parent to git dir does not exist", &obj.id);
         return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
     }
     if let Ok(entries) = std::fs::read_dir(path) {
@@ -172,21 +198,25 @@ pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<Socket
             .map(|(entry, _)| entry.path())
             .into_iter() {
             if std::fs::remove_file(path.clone()).is_ok() {
-                println!("Removed {:?}", path);
+                log::trace!(target: "remote_text_server::save_file", "[{}] Removed {:?}", &obj.id, path);
                 // index.add_path("../")
                 // index.add_path(path.strip_prefix(cd.as_path()).unwrap());
             } else {
-                eprintln!("Unable to remove {:?}", path);
+                log::error!(target: "remote_text_server::save_file", "[{}] Unable to remove {:?}", &obj.id, path);
             }
         }
+    } else {
+        log::error!(target: "remote_text_server::save_file", "[{}] No files found in repo", &obj.id);
     }
-    let file_path = path.join(obj.name);
+    let file_path = path.join(&obj.name);
     if std::fs::write(file_path, obj.content).is_err() {
+        log::error!(target: "remote_text_server::save_file", "[{}] Unable to write to file", &obj.id);
         return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
     }
+    log::trace!(target: "remote_text_server::save_file", "[{}] Wrote content to {}", &obj.id, &obj.name);
 
     //Perform commit
-    let par = repo.head().unwrap().peel_to_commit().unwrap();
+    let par = repo.head().unwrap().peel_to_commit().unwrap(); //should read from JSON obj
     let now = Utc::now();
     let time = Time::new(now.timestamp(), 0);
     let them = if addr.is_some() {
@@ -201,6 +231,7 @@ pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<Socket
     index.write();
     let tree_id = index.write_tree().unwrap();
     let co = repo.commit(Some("HEAD"), &their_sig, &our_sig, "", &repo.find_tree(tree_id).unwrap(), &[&par]).unwrap();
+    log::trace!(target: "remote_text_server::save_file", "[{}] Made commit ({})", &obj.id, co.to_string());
 
     let gc = GitCommit {
         hash: co.to_string(),
@@ -214,7 +245,7 @@ pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<Socket
 
 
 TODO: Comment preview_file() functionality & general description
-
+TODO
 */
 pub(crate) async fn preview_file(obj: FileIDAndOptionalGitHash) -> Result<Box<dyn warp::Reply>, Infallible> {
     return if rand::random() {
@@ -237,7 +268,7 @@ pub(crate) async fn preview_file(obj: FileIDAndOptionalGitHash) -> Result<Box<dy
 
 
 TODO: Comment get_preview() functionality & general description
-
+TODO
 */
 pub(crate) async fn get_preview(obj: FileIDAndOptionalGitHash) -> Result<Box<dyn warp::Reply>, Infallible> {
     // if files::file_exists(obj.id) {
@@ -261,17 +292,23 @@ TODO: Comment get_history() functionality & general description
 
 */
 pub(crate) async fn get_history(file_id: IdOnly, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+    log::trace!(target: "remote_text_server::get_history", "[{}] Acquiring lock on hash map", &file_id.id);
     let repos = repos.lock().unwrap();
     let Some(repo) = repos.get(&file_id.id) else {
+        log::info!(target: "remote_text_server::get_history", "[{}] Request made to get history of nonexistent file", &file_id.id);
         return Ok(Box::new(StatusCode::NOT_FOUND));
     };
     let odb = repo.odb().unwrap();
+    log::trace!(target: "remote_text_server::get_history", "[{}] Opened object database", &file_id.id);
     let mut commits = vec![];
     odb.foreach(|oid| {
+        log::trace!(target: "remote_text_server::get_history", "[{}] Object {} located in database", &file_id.id, oid.to_string());
         let Ok(commit) = repo.find_commit(*oid) else {
+            log::trace!(target: "remote_text_server::get_history", "[{}] Object {} is not commit", &file_id.id, oid.to_string());
             return true;
         };
         let parent = commit.parent_ids().next().map(|cm| cm.to_string());
+        log::trace!(target: "remote_text_server::get_history", "[{}] Parent of commit {} is {:?}", &file_id.id, oid.to_string(), parent);
         // let parent = commit.parent(1).ok().map(|cm| cm.id().to_string());
         commits.push(GitCommit { hash: commit.id().to_string(), parent });
         true
@@ -280,15 +317,20 @@ pub(crate) async fn get_history(file_id: IdOnly, repos: Arc<Mutex<HashMap<Uuid, 
     // for _ref in repo.references().iter() {
     //     _ref
     // }
+    log::trace!(target: "remote_text_server::get_history", "[{}] Iterating through branches", &file_id.id);
     let refs = repo.branches(None).unwrap().map(|b| {
+        log::trace!(target: "remote_text_server::get_history", "[{}] Investigating branch", &file_id.id);
         let (branch, branch_type) = b.unwrap();
         let name = branch.name().unwrap().unwrap().to_string();
+        log::trace!(target: "remote_text_server::get_history", "[{}] Branch name: {}", &file_id.id, name);
         let hash = branch.get().peel_to_commit().unwrap().id().to_string();
+        log::trace!(target: "remote_text_server::get_history", "[{}] Branch ref: {}", &file_id.id, hash);
         return GitRef {
             name,
             hash,
         }
     }).collect::<Vec<GitRef>>();
+    log::info!(target: "remote_text_server::get_history", "[{}] History loaded", &file_id.id);
     let history = GitHistory {
         commits,
         refs,
