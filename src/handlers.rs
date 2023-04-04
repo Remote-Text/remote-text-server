@@ -147,6 +147,8 @@ pub(crate) struct FileAndHashAndBranchName {
     parent: String,
     branch: String
 }
+//TODO: make commit off of parent
+//TODO: update branch to point to new commit
 pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
     log::trace!(target: "remote_text_server::save_file", "[{}] Acquiring lock on hash map", &obj.id);
     let repos = repos.lock().unwrap();
@@ -217,6 +219,7 @@ pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<Socket
     return Ok(Box::new(warp::reply::json(&gc)));
 }
 
+//TODO
 pub(crate) async fn preview_file(obj: FileIDAndOptionalGitHash) -> Result<Box<dyn warp::Reply>, Infallible> {
     return if rand::random() {
         Ok(Box::new(warp::reply::json(&CompilationOutput {
@@ -233,6 +236,7 @@ pub(crate) async fn preview_file(obj: FileIDAndOptionalGitHash) -> Result<Box<dy
     };
 }
 
+//TODO
 pub(crate) async fn get_preview(obj: FileIDAndOptionalGitHash) -> Result<Box<dyn warp::Reply>, Infallible> {
     // if files::file_exists(obj.id) {
     //
