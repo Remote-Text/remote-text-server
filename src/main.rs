@@ -42,28 +42,28 @@ async fn main() {
     // Initialize pretty_env_logger so we can get organized/colorful logs
     pretty_env_logger::init();
 
+    log::info!(target: "remote_text_server::main", "Searching for repositories");
     let repositories = files::repos();
-    println!("REPOS");
-    for (uuid, _) in repositories.lock().unwrap().iter() {
-        println!("{}", uuid);
-    }
 
+    log::trace!(target: "remote_text_server::main", "Setting up filters");
     // Set up the warp wrapper with CORS (Cross-Origin Resource Sharing), allowing any origin point
     let cors = warp::cors()
         .allow_any_origin()
         .allow_header("content-type")
         .allow_methods(vec!["GET", "POST", "PUT", "PATCH", "DELETE"]);
     // Sets up logging for api requests
-    let log = warp::log("remote-text-server::api");
+    let log = warp::log("remote_text_server::api");
     // Sets up the root path for the api
     let api_root = warp::path("api");
 
+    log::trace!(target: "remote_text_server::main", "Setting up routes");
     // Creates a chain of filters that checks/runs each function in the API
     let routes = api_root.and(routes::get_routes(repositories.clone()))
         // .map(|reply| warp::reply::with_header(reply, "Access-Control-Allow-Origin", "*"))
         .with(cors)
         .with(log);
 
+    log::trace!(target: "remote_text_server::main", "Running server");
     // Runs the server with the set up filters
     warp::serve(routes)
         .run(([0, 0, 0, 0], 3030))
