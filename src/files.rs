@@ -35,6 +35,43 @@ pub(crate) fn repos() -> Arc<Mutex<HashMap<Uuid, Repository>>> {
 pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<FileSummary> {
     let list = repos.lock().unwrap().iter()
         .map(|(uuid, repo)| {
+            if !Path::new(repo.path()).exists() {
+                log::error!(target: "remote_text_server::list_files", "[{}] Repository does not exist", uuid);
+                panic!()
+            }
+            let Some(path) = repo.path().parent() else {
+                log::error!(target: "remote_text_server::list_files", "[{}] Parent of .git dir does not exist", uuid);
+                panic!()
+            };
+            let Ok(entries) = fs::read_dir(path) else {
+                log::error!(target: "remote_text_server::list_files", "[{}] Cannot read entries in directory", uuid);
+                panic!()
+            };
+
+            let files = entries.into_iter()
+                .filter_map(|entry| entry.ok())
+                .filter_map(|entry| {
+                    let file_type = entry.file_type().ok();
+                    Some((entry, file_type?))
+                })
+                // .filter_map(|entry| Some((entry, entry.file_type().ok()?)))
+                .filter(|(_, file_type)| file_type.is_file())
+                .map(|(entry, _)| {
+                    entry.file_name()
+                })
+                .collect::<Vec<_>>();
+            if files.len() > 1 {
+                log::warn!(target: "remote_text_server::list_files", "[{}] Multiple files found", uuid);
+            }
+            let Some(fname )= files.first() else {
+                log::error!(target: "remote_text_server::list_files", "[{}] No files found", uuid);
+                panic!("no files found!")
+            };
+            let Some(_filename) = fname.to_str() else {
+                log::error!(target: "remote_text_server::list_files", "[{}] Cannot convert filename from OsStr to str", uuid);
+                panic!("Cannot convert filename {:?}", fname)
+            };
+            let filename = _filename.to_string();
 
             log::trace!(target: "remote_text_server::list_files", "[{}] Revwalking", uuid);
             let mut x = repo.revwalk().ok().unwrap();
@@ -50,7 +87,7 @@ pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<Fi
             let Some(_oid) = x.last() else {
                 log::trace!(target: "remote_text_server::list_files", "[{}] First commit is last commit ({})", uuid, oid.to_string());
                 return FileSummary {
-                    name: "TEST".to_string(),
+                    name: filename,
                     id: *uuid,
                     edited_time: d,
                     created_time: d,
@@ -59,7 +96,7 @@ pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<Fi
             let Some(oid) = _oid.ok() else {
                 log::trace!(target: "remote_text_server::list_files", "[{}] Oldest commit is invalid", uuid);
                 return FileSummary {
-                    name: "TEST".to_string(),
+                    name: filename,
                     id: *uuid,
                     edited_time: d,
                     created_time: d,
@@ -72,7 +109,7 @@ pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<Fi
             log::trace!(target: "remote_text_server::list_files", "[{}] Found oldest timestamp ({})", uuid, d2.to_string());
             //git log --all -1 --format=%cd
             FileSummary {
-                name: "TEST".to_string(),
+                name: filename,
                 id: *uuid,
                 edited_time: d,
                 created_time: d2,
