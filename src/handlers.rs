@@ -36,7 +36,8 @@ pub(crate) struct NameAndOptionalContent {
 This function will take the file name (and optional content), an address, and a corresponding
 repository (?) to create a new file instance, as well as start its git history.
 
-TODO: Comment create_file() functionality & general description
+// TODO: Comment create_file() functionality & general description
+// TODO: Make files save to a designated directory
 
 */
 pub(crate) async fn create_file(name: NameAndOptionalContent, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<impl warp::Reply, Infallible> {
