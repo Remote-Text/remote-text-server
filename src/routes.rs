@@ -38,6 +38,12 @@ fn save_file(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> impl Filter<Extrac
         .and_then(move |obj, addr| handlers::save_file(obj, addr, repos.clone()))
 }
 
+fn delete_file(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
+    warp::path("deleteFile")
+        .and(json_body())
+        .and_then(move |obj| handlers::delete_file(obj, repos.clone()))
+}
+
 fn preview_file(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
     warp::path("previewFile")
         .and(json_body())
@@ -61,6 +67,7 @@ pub(crate) fn get_routes(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> impl F
         .or(create_file(repos.clone()))
         .or(get_file(repos.clone()))
         .or(save_file(repos.clone()))
+        .or(delete_file(repos.clone()))
         .or(preview_file(repos.clone()))
         .or(get_preview(repos.clone()))
         .or(get_history(repos.clone()))

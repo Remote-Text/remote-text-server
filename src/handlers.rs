@@ -7,10 +7,12 @@ use std::net::SocketAddr;
 use std::ops::Index;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+use std::fs;
+use std::fs::remove_dir_all;
 
 use base64::{engine, Engine};
 use chrono::{DateTime, Days, Utc};
-use git2::{IndexAddOption, Oid, Repository, Signature, Time};
+use git2::{IndexAddOption, Oid, Repository, Signature, StatusShow, Time};
 use git2::build::CheckoutBuilder;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -278,6 +280,39 @@ pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<Socket
         parent: Some(par.id().to_string()),
     };
     return Ok(Box::new(warp::reply::json(&gc)));
+}
+
+/*
+// DELETE FILE //
+
+*/
+pub(crate) async fn delete_file(obj: IdOnly, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+    log::trace!(target: "remote_text_server::delete_file", "[{}] Acquiring lock on hash map", &obj.id);
+    let mut repos = repos.lock().unwrap();
+
+    // 1. See if repo exists
+    let Some(_) = repos.get(&obj.id) else {
+        log::info!(target: "remote_text_server::delete_file", "[{}] Request made to delete nonexistent file", &obj.id);
+        return Ok(Box::new(StatusCode::NOT_FOUND));
+    };
+
+    // 2. Delete repo rust object
+    // // First delete the repo object from the hash map
+    repos.remove(&obj.id);
+    log::info!(target: "remote_text_server::delete_file", "[{}] Target repo deleted", &obj.id);
+
+    // 3. Delete file on disk
+    let uuid_string = &obj.id.to_string();
+    match remove_dir_all(format!("./{uuid_string}")) {
+        Ok(_) => {
+            log::info!(target: "remote_text_server::delete_file", "[{}] Target directory successfully removed", &obj.id);
+            return Ok(Box::new(StatusCode::OK))
+        },
+        Err(_) => {
+            log::info!(target: "remote_text_server::delete_file", "[{}] Target directory was unable to be removed", &obj.id);
+            return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR))
+        }
+    }
 }
 
 /*
