@@ -119,9 +119,8 @@ pub(crate) async fn get_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap<Uui
         return Ok(Box::new(StatusCode::BAD_REQUEST));
     };
     log::trace!(target: "remote_text_server::get_file", "[{}] Set HEAD", &obj.id);
-    // repo.checkout_head(Some(CheckoutBuilder::new().force())).unwrap();
     log::trace!(target: "remote_text_server::get_file", "[{}] Checking out HEAD", &obj.id);
-    let Ok(_) = repo.checkout_head(None) else {
+    let Ok(_) = repo.checkout_head(Some(CheckoutBuilder::new().force())) else {
         log::error!(target: "remote_text_server::get_file", "[{}] Unable to checkout", &obj.id);
         return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
     };
@@ -309,7 +308,7 @@ pub(crate) async fn delete_file(obj: IdOnly, repos: Arc<Mutex<HashMap<Uuid, Repo
             return Ok(Box::new(StatusCode::OK))
         },
         Err(_) => {
-            log::info!(target: "remote_text_server::delete_file", "[{}] Target directory was unable to be removed", &obj.id);
+            log::error!(target: "remote_text_server::delete_file", "[{}] Target directory was unable to be removed", &obj.id);
             return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR))
         }
     }
