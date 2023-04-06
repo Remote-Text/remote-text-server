@@ -2,13 +2,14 @@ use std::any::Any;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::ffi::OsString;
+use std::fs;
+use std::hash::Hash;
 use std::io::Write;
 use std::net::SocketAddr;
 use std::ops::Index;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
-use std::fs;
-use std::fs::remove_dir_all;
+use std::process::Command;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use base64::{engine, Engine};
 use chrono::{DateTime, Days, Utc};
@@ -101,29 +102,48 @@ TODO: Comment get_file() functionality & general description
 pub(crate) async fn get_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
     log::trace!(target: "remote_text_server::get_file", "[{}] Acquiring lock on hash map", &obj.id);
     let repos = repos.lock().unwrap();
-    let Some(repo) = repos.get(&obj.id) else {
-        log::info!(target: "remote_text_server::get_file", "[{}] Request made to get nonexistent file", &obj.id);
-        return Ok(Box::new(StatusCode::NOT_FOUND));
+    log::trace!(target: "remote_text_server::get_file", "[{}] Calling get_file_contents", &obj.id);
+    return Ok(match get_file_contents(&obj.id, &obj.hash, &repos) {
+        Ok((filename, content)) => {
+            log::trace!(target: "remote_text_server::get_file", "[{}] Located filename and content", &obj.id);
+            Box::new(warp::reply::json(&File {
+                name: filename,
+                id: obj.id,
+                content,
+            }))
+        },
+        Err(code) => {
+            log::trace!(target: "remote_text_server::get_file", "[{}] Unable to locate file", &obj.id);
+            Box::new(code)
+        }
+    })
+}
+
+//TODO: make private
+fn get_file_contents(uuid: &Uuid, hash: &String, repos: &MutexGuard<HashMap<Uuid, Repository>>) -> Result<(String, String), StatusCode> {
+    let Some(repo) = repos.get(&uuid) else {
+        log::info!(target: "remote_text_server::get_file_contents", "[{}] Request made to get nonexistent file", &uuid);
+        return Err(StatusCode::NOT_FOUND);
     };
     /*
     repo.set_head(obj.hash.as_str()).unwrap();
      */
-    let Ok(oid) = Oid::from_str(obj.hash.as_str()) else {
-        log::error!(target: "remote_text_server::get_file", "[{}] Cannot construct OID from hash {}", &obj.id, obj.hash);
-        return Ok(Box::new(StatusCode::BAD_REQUEST));
+    let Ok(oid) = Oid::from_str(hash.as_str()) else {
+        log::info!(target: "remote_text_server::get_file_contents", "[{}] Cannot construct OID from hash {}", &uuid, &hash);
+        return Err(StatusCode::BAD_REQUEST);
     };
-    log::trace!(target: "remote_text_server::get_file", "[{}] Setting HEAD to {}", &obj.id, oid.to_string());
+    log::trace!(target: "remote_text_server::get_file_contents", "[{}] Setting HEAD to {}", &uuid, oid.to_string());
     let Ok(_) = repo.set_head_detached(oid) else {
         //The hash we were given does not exist
-        log::info!(target: "remote_text_server::get_file", "[{}] Unable to set HEAD (invalid hash)", &obj.id);
-        return Ok(Box::new(StatusCode::BAD_REQUEST));
+        log::info!(target: "remote_text_server::get_file_contents", "[{}] Unable to set HEAD (invalid hash)", &uuid);
+        return Err(StatusCode::BAD_REQUEST);
     };
-    log::trace!(target: "remote_text_server::get_file", "[{}] Set HEAD", &obj.id);
+    log::trace!(target: "remote_text_server::get_file_contents", "[{}] Set HEAD", &uuid);
     // repo.checkout_head(Some(CheckoutBuilder::new().force())).unwrap();
-    log::trace!(target: "remote_text_server::get_file", "[{}] Checking out HEAD", &obj.id);
+    log::trace!(target: "remote_text_server::get_file_contents", "[{}] Checking out HEAD", &uuid);
     let Ok(_) = repo.checkout_head(None) else {
-        log::error!(target: "remote_text_server::get_file", "[{}] Unable to checkout", &obj.id);
-        return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+        log::error!(target: "remote_text_server::get_file_contents", "[{}] Unable to checkout", &uuid);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
     };
     if std::path::Path::new(repo.path()).exists() {
         if let Some(path) = repo.path().parent() {
@@ -142,38 +162,29 @@ pub(crate) async fn get_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap<Uui
                     .collect::<Vec<_>>()
                     .first() {
                     let Ok(filename) = fname.clone().into_string() else {
-                        log::error!(target: "remote_text_server::get_file", "[{}] Cannot convert filename '{:?}' to string", &obj.id, fname.clone());
-                        return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+                        log::error!(target: "remote_text_server::get_file_contents", "[{}] Cannot convert filename '{:?}' to string", &uuid, fname.clone());
+                        return Err(StatusCode::INTERNAL_SERVER_ERROR);
                     };
-                    log::info!(target: "remote_text_server::get_file", "[{}] Found file {}", &obj.id, filename);
-                    return Ok(Box::new(warp::reply::json(&File {
-                        name: filename,
-                        id: obj.id,
-                        content: content.to_string(),
-                    })));
+                    log::info!(target: "remote_text_server::get_file_contents", "[{}] Found file {}", &uuid, filename);
+                    return Ok((filename, content.to_string()));
                 } else {
-                    log::error!(target: "remote_text_server::get_file", "[{}] No file found in repo", &obj.id);
-                    return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
-                    // return Ok(Box::new(warp::reply::json(&File {
-                    //     name: "".to_string(),
-                    //     id: obj.id,
-                    //     content: "".to_string(),
-                    // })));
+                    log::error!(target: "remote_text_server::get_file_contents", "[{}] No file found in repo", &uuid);
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
                 }
             } else {
-                log::error!(target: "remote_text_server::get_file", "[{}] Cannot read repo dir", &obj.id);
-                eprintln!("Cannot read repo dir for UUID {}", obj.id);
-                return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+                log::error!(target: "remote_text_server::get_file_contents", "[{}] Cannot read repo dir", &uuid);
+                eprintln!("Cannot read repo dir for UUID {}", &uuid);
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
         } else {
-            log::error!(target: "remote_text_server::get_file", "[{}] Parent to git dir does not exist", &obj.id);
-            eprintln!("Parent to git dir does not exist for UUID {}", obj.id);
-            return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+            log::error!(target: "remote_text_server::get_file_contents", "[{}] Parent to git dir does not exist", &uuid);
+            eprintln!("Parent to git dir does not exist for UUID {}", &uuid);
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     } else {
-        log::error!(target: "remote_text_server::get_file", "[{}] No repo exists", &obj.id);
-        eprintln!("No repo exists for UUID {}", obj.id);
-        return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+        log::error!(target: "remote_text_server::get_file_contents", "[{}] No repo exists", &uuid);
+        eprintln!("No repo exists for UUID {}", &uuid);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 }
 
@@ -303,7 +314,7 @@ pub(crate) async fn delete_file(obj: IdOnly, repos: Arc<Mutex<HashMap<Uuid, Repo
 
     // 3. Delete file on disk
     let uuid_string = &obj.id.to_string();
-    match remove_dir_all(format!("./{uuid_string}")) {
+    match fs::remove_dir_all(format!("./{uuid_string}")) {
         Ok(_) => {
             log::info!(target: "remote_text_server::delete_file", "[{}] Target directory successfully removed", &obj.id);
             return Ok(Box::new(StatusCode::OK))
@@ -317,26 +328,74 @@ pub(crate) async fn delete_file(obj: IdOnly, repos: Arc<Mutex<HashMap<Uuid, Repo
 
 /*
 // PREVIEW FILE //
-
+pdflatex -output-directory {} {}, this_commit_path, input_file_path
 
 TODO: Comment preview_file() functionality & general description
 TODO: do
 
 */
-pub(crate) async fn preview_file(obj: FileIDAndOptionalGitHash) -> Result<Box<dyn warp::Reply>, Infallible> {
-    return if rand::random() {
-        Ok(Box::new(warp::reply::json(&CompilationOutput {
-            state: CompilationState::SUCCESS,
-            log: "".to_string(),
-        })))
-    } else if rand::random() {
-        Ok(Box::new(warp::reply::json(&CompilationOutput {
-            state: CompilationState::FAILURE,
-            log: "".to_string(),
-        })))
-    } else {
-        Ok(Box::new(StatusCode::NOT_FOUND))
+pub(crate) async fn preview_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+    log::trace!(target: "remote_text_server::preview_file", "[{}] Acquiring lock on hash map", &obj.id);
+    let repos = repos.lock().unwrap();
+    log::trace!(target: "remote_text_server::preview_file", "[{}] Calling get_file_contents", &obj.id);
+    let (filename, content) = match get_file_contents(&obj.id, &obj.hash, &repos) {
+        Ok((filename, content)) => (filename, content),
+        Err(code) => {
+            log::trace!(target: "remote_text_server::preview_file", "[{}] Unable to locate file", &obj.id);
+            return Ok(Box::new(code));
+        }
     };
+    // let Ok((filename, content)) = get_file_contents(obj.id, obj.hash, repos) else {
+    //     log::trace!(target: "remote_text_server::preview_file", "[{}] Unable to locate file", &obj.id);
+    //     return Ok(Box::new(code));
+    // };
+    log::trace!(target: "remote_text_server::preview_file", "[{}] Located filename and content", &obj.id);
+
+    let previews_path = Path::new("./previews").join(&obj.id.to_string());
+    log::trace!(target: "remote_text_server::preview_file", "[{}] Creating preview path for file (if it doesn't exist)", &obj.id);
+    let Ok(_) = fs::create_dir_all(&previews_path) else {
+        log::error!(target: "remote_text_server::preview_file", "[{}] Cannot create preview path ({:?})", &obj.id, previews_path);
+        return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR))
+    };
+
+    let this_commit_path = previews_path.join(&obj.hash);
+    if this_commit_path.exists() {
+        log::info!(target: "remote_text_server::preview_file", "[{}] Preview path already exists for commit {}", &obj.id, obj.hash);
+        return Ok(Box::new(StatusCode::OK))
+    }
+    log::trace!(target: "remote_text_server::preview_file", "[{}] Preview path does not yet exist for commit {}", &obj.id, obj.hash);
+
+    let Ok(_) = fs::create_dir(&this_commit_path) else {
+        log::error!(target: "remote_text_server::preview_file", "[{}] Unable to create preview path for commit {}", &obj.id, obj.hash);
+        return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR))
+    };
+    log::trace!(target: "remote_text_server::preview_file", "[{}] Created preview path", &obj.id);
+
+    let mut parts = filename.rsplit(".");
+    let ext = parts.next().unwrap();
+    if parts.count() == 0 {
+        log::warn!(target: "remote_text_server::preview_file", "[{}] No file extension (filename: {})", &obj.id, filename);
+        return Ok(Box::new(StatusCode::IM_A_TEAPOT));
+    } else {
+        log::trace!(target: "remote_text_server::preview_file", "[{}] File extension exists ({})", &obj.id, ext);
+        match ext {
+            "tex" => {
+                log::trace!(target: "remote_text_server::preview_file", "[{}] Detected TeX file", &obj.id);
+            },
+            "md" | "markdown" => {
+                log::trace!(target: "remote_text_server::preview_file", "[{}] Detected Markdown file", &obj.id);
+            }
+            _ => {
+                log::trace!(target: "remote_text_server::preview_file", "[{}] Unknown file type ({})", &obj.id, ext);
+            }
+        }
+    }
+
+    return Ok(Box::new(StatusCode::OK))
+
+    // Command::new("pdflatex")
+    //     .args(["-output-directory", this_commit_path])
+    //     .arg(input_file_path)
 }
 
 /*
