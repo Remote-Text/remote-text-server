@@ -41,7 +41,7 @@ fn save_file(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> impl Filter<Extrac
 fn preview_file(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
     warp::path("previewFile")
         .and(json_body())
-        .and_then(handlers::preview_file)
+        .and_then(move |obj| handlers::preview_file(obj, repos.clone()))
 }
 
 fn get_preview(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
