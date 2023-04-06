@@ -360,6 +360,10 @@ pub(crate) async fn preview_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap
     };
     rest.reverse();
     let name_root = rest.join(".");
+    let log_name = format!("{name_root}.log");
+    log::trace!(target: "remote_text_server::preview_file", "[{}] Log name: {log_name}", &obj.id);
+    let status_name = format!("{name_root}.status");
+    log::trace!(target: "remote_text_server::preview_file", "[{}] Status name: {status_name}", &obj.id);
 
     let previews_path = Path::new("./previews").join(&obj.id.to_string());
     log::trace!(target: "remote_text_server::preview_file", "[{}] Creating preview path for file (if it doesn't exist)", &obj.id);
@@ -369,15 +373,17 @@ pub(crate) async fn preview_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap
     };
 
     let this_commit_path = previews_path.join(&obj.hash);
+    let log_path = this_commit_path.join(&log_name);
+    let status_path = this_commit_path.join(&status_name);
     if this_commit_path.exists() {
         log::trace!(target: "remote_text_server::preview_file", "[{}] Preview path already exists for commit {}", &obj.id, obj.hash);
 
-        let Ok(log_contents) = fs::read_to_string(this_commit_path.join(format!("{name_root}.log"))) else {
+        let Ok(log_contents) = fs::read_to_string(log_path) else {
             log::error!(target: "remote_text_server::preview_file", "[{}] Although preview path exists, log file does not", &obj.id);
             return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
         };
         log::trace!(target: "remote_text_server::preview_file", "[{}] Loaded preview log", &obj.id);
-        let Ok(status_contents) = fs::read_to_string(this_commit_path.join(format!("{name_root}.status"))) else {
+        let Ok(status_contents) = fs::read_to_string(status_path) else {
             log::error!(target: "remote_text_server::preview_file", "[{}] Although preview path exists, status code file does not", &obj.id);
             return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
         };
@@ -409,6 +415,10 @@ pub(crate) async fn preview_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap
     match ext {
         "tex" => {
             log::trace!(target: "remote_text_server::preview_file", "[{}] Detected TeX file", &obj.id);
+
+            let output_name = format!("{name_root}.pdf");
+            log::trace!(target: "remote_text_server::preview_file", "[{}] Output name: {}", &obj.id, output_name);
+
             let res = Command::new("pdflatex")
                 .args(["-output-directory", this_commit_path.canonicalize().unwrap().to_str().unwrap()])
                 .args(["-interaction", "nonstopmode"])
@@ -424,14 +434,13 @@ pub(crate) async fn preview_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap
             };
             log::trace!(target: "remote_text_server::preview_file", "[{}] Launched pdflatex", &obj.id);
 
-            let log_name = format!("{name_root}.log");
-            let Ok(log_content) = fs::read_to_string(this_commit_path.join(log_name)) else {
+            let Ok(log_content) = fs::read_to_string(log_path) else {
                 log::error!(target: "remote_text_server::preview_file", "[{}] Unable to read pdflatex log", &obj.id);
                 return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
             };
             log::trace!(target: "remote_text_server::preview_file", "[{}] Read pdflatex log", &obj.id);
 
-            let Ok(_) = fs::write(this_commit_path.join(format!("{name_root}.status")), if res.success() { "SUCCESS" } else { "FAILURE" }) else {
+            let Ok(_) = fs::write(status_path, if res.success() { "SUCCESS" } else { "FAILURE" }) else {
                 log::error!(target: "remote_text_server::preview_file", "[{}] Unable to write pdflatex status", &obj.id);
                 return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
             };
@@ -448,8 +457,6 @@ pub(crate) async fn preview_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap
 
             let output_name = format!("{name_root}.html");
             log::trace!(target: "remote_text_server::preview_file", "[{}] Output name: {}", &obj.id, output_name);
-            let log_name = format!("{name_root}.log");
-            log::trace!(target: "remote_text_server::preview_file", "[{}] Log name: {log_name}", &obj.id);
 
             let res = Command::new("pandoc")
                 .arg("--verbose")
@@ -464,7 +471,7 @@ pub(crate) async fn preview_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap
             };
             log::trace!(target: "remote_text_server::preview_file", "[{}] Ran pandoc", &obj.id);
 
-            let Ok(_) = fs::write(this_commit_path.join(log_name), &res.stderr) else {
+            let Ok(_) = fs::write(log_path, &res.stderr) else {
                 log::error!(target: "remote_text_server::preview_file", "[{}] Unable to write pandoc log", &obj.id);
                 return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
             };
@@ -476,7 +483,7 @@ pub(crate) async fn preview_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap
             };
             log::trace!(target: "remote_text_server::preview_file", "[{}] Validated pandoc log as UTF-8", &obj.id);
 
-            let Ok(_) = fs::write(this_commit_path.join(format!("{name_root}.status")), if res.status.success() { "SUCCESS" } else { "FAILURE" }) else {
+            let Ok(_) = fs::write(status_path, if res.status.success() { "SUCCESS" } else { "FAILURE" }) else {
                 log::error!(target: "remote_text_server::preview_file", "[{}] Unable to write pandoc status", &obj.id);
                 return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
             };
