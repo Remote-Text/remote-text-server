@@ -351,6 +351,16 @@ pub(crate) async fn preview_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap
     // };
     log::trace!(target: "remote_text_server::preview_file", "[{}] Located filename and content", &obj.id);
 
+    let mut parts = filename.rsplit(".");
+    let ext = parts.next().unwrap();
+    let mut rest = parts.collect::<Vec<_>>();
+    if rest.len() == 0 {
+        log::warn!(target: "remote_text_server::preview_file", "[{}] No file extension (filename: {})", &obj.id, filename);
+        return Ok(Box::new(StatusCode::IM_A_TEAPOT))
+    };
+    rest.reverse();
+    let name_root = rest.join(".");
+
     let previews_path = Path::new("./previews").join(&obj.id.to_string());
     log::trace!(target: "remote_text_server::preview_file", "[{}] Creating preview path for file (if it doesn't exist)", &obj.id);
     let Ok(_) = fs::create_dir_all(&previews_path) else {
@@ -360,8 +370,32 @@ pub(crate) async fn preview_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap
 
     let this_commit_path = previews_path.join(&obj.hash);
     if this_commit_path.exists() {
-        log::info!(target: "remote_text_server::preview_file", "[{}] Preview path already exists for commit {}", &obj.id, obj.hash);
-        return Ok(Box::new(StatusCode::OK))
+        log::trace!(target: "remote_text_server::preview_file", "[{}] Preview path already exists for commit {}", &obj.id, obj.hash);
+
+        let Ok(log_contents) = fs::read_to_string(this_commit_path.join(format!("{name_root}.log"))) else {
+            log::error!(target: "remote_text_server::preview_file", "[{}] Although preview path exists, log file does not", &obj.id);
+            return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+        };
+        log::trace!(target: "remote_text_server::preview_file", "[{}] Loaded preview log", &obj.id);
+        let Ok(status_contents) = fs::read_to_string(this_commit_path.join(format!("{name_root}.status"))) else {
+            log::error!(target: "remote_text_server::preview_file", "[{}] Although preview path exists, status code file does not", &obj.id);
+            return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+        };
+        log::trace!(target: "remote_text_server::preview_file", "[{}] Loaded preview status", &obj.id);
+        let status = match status_contents.as_str() {
+            "SUCCESS" => CompilationState::SUCCESS,
+            "FAILURE" => CompilationState::FAILURE,
+            _ => {
+                log::error!(target: "remote_text_server::preview_file", "[{}] Although status code file exists, it has invalid contents", &obj.id);
+                return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+            }
+        };
+        log::trace!(target: "remote_text_server::preview_file", "[{}] Converted preview status to enum", &obj.id);
+        log::info!(target: "remote_text_server::preview_file", "[{}] Loaded and returned cached preview", &obj.id);
+        return Ok(Box::new(warp::reply::json(&CompilationOutput {
+            state: status,
+            log: log_contents,
+        })));
     }
     log::trace!(target: "remote_text_server::preview_file", "[{}] Preview path does not yet exist for commit {}", &obj.id, obj.hash);
 
@@ -371,85 +405,91 @@ pub(crate) async fn preview_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap
     };
     log::trace!(target: "remote_text_server::preview_file", "[{}] Created preview path", &obj.id);
 
-    let mut parts = filename.rsplit(".");
-    let ext = parts.next().unwrap();
-    let mut rest = parts.collect::<Vec<_>>();
-    // let rest = parts.rev().collect::<Vec<_>>();
-    if rest.len() == 0 {
-        log::warn!(target: "remote_text_server::preview_file", "[{}] No file extension (filename: {})", &obj.id, filename);
-        return Ok(Box::new(StatusCode::IM_A_TEAPOT));
-    } else {
-        log::trace!(target: "remote_text_server::preview_file", "[{}] File extension exists ({})", &obj.id, ext);
-        match ext {
-            "tex" => {
-                log::trace!(target: "remote_text_server::preview_file", "[{}] Detected TeX file", &obj.id);
-                let res = Command::new("pdflatex")
-                    .args(["-output-directory", this_commit_path.canonicalize().unwrap().to_str().unwrap()])
-                    .args(["-interaction", "nonstopmode"])
-                    .arg("-halt-on-error")
-                    .arg(format!("./files/{}/{filename}", &obj.id))
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .status();
-                    // .spawn();
-                let Ok(res) = res else {
-                    log::error!(target: "remote_text_server::preview_file", "[{}] Unable to launch pdflatex", &obj.id);
-                    return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
-                };
+    log::trace!(target: "remote_text_server::preview_file", "[{}] Compiling based on file extension ({})", &obj.id, ext);
+    match ext {
+        "tex" => {
+            log::trace!(target: "remote_text_server::preview_file", "[{}] Detected TeX file", &obj.id);
+            let res = Command::new("pdflatex")
+                .args(["-output-directory", this_commit_path.canonicalize().unwrap().to_str().unwrap()])
+                .args(["-interaction", "nonstopmode"])
+                .arg("-halt-on-error")
+                .arg(format!("./files/{}/{filename}", &obj.id))
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status();
+            // .spawn();
+            let Ok(res) = res else {
+                log::error!(target: "remote_text_server::preview_file", "[{}] Unable to launch pdflatex", &obj.id);
+                return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+            };
+            log::trace!(target: "remote_text_server::preview_file", "[{}] Launched pdflatex", &obj.id);
 
-                rest.reverse();
-                let log_name = format!("{}.log", rest.join("."));
-                let Ok(log_content) = fs::read_to_string(this_commit_path.join(log_name)) else {
-                    log::error!(target: "remote_text_server::preview_file", "[{}] Unable to read pdflatex log", &obj.id);
-                    return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
-                };
+            let log_name = format!("{name_root}.log");
+            let Ok(log_content) = fs::read_to_string(this_commit_path.join(log_name)) else {
+                log::error!(target: "remote_text_server::preview_file", "[{}] Unable to read pdflatex log", &obj.id);
+                return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+            };
+            log::trace!(target: "remote_text_server::preview_file", "[{}] Read pdflatex log", &obj.id);
 
-                return Ok(Box::new(warp::reply::json(&CompilationOutput {
-                    state: if res.success() { CompilationState::SUCCESS } else { CompilationState::FAILURE },
-                    log: log_content,
-                })));
-            },
-            "md" | "markdown" => {
-                log::trace!(target: "remote_text_server::preview_file", "[{}] Detected Markdown file", &obj.id);
+            let Ok(_) = fs::write(this_commit_path.join(format!("{name_root}.status")), if res.success() { "SUCCESS" } else { "FAILURE" }) else {
+                log::error!(target: "remote_text_server::preview_file", "[{}] Unable to write pdflatex status", &obj.id);
+                return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+            };
+            log::trace!(target: "remote_text_server::preview_file", "[{}] Wrote pdflatex status", &obj.id);
 
-                rest.reverse();
-                let output_name = format!("{}.html", rest.join("."));
-                log::trace!(target: "remote_text_server::preview_file", "[{}] Output name: {}", &obj.id, output_name);
-                let log_name = format!("{}.log", rest.join("."));
-                log::trace!(target: "remote_text_server::preview_file", "[{}] Log name: {log_name}", &obj.id);
+            log::info!(target: "remote_text_server::preview_file", "[{}] Returning status and log of pdflatex preview attempt", &obj.id);
+            return Ok(Box::new(warp::reply::json(&CompilationOutput {
+                state: if res.success() { CompilationState::SUCCESS } else { CompilationState::FAILURE },
+                log: log_content,
+            })));
+        },
+        "md" | "markdown" => {
+            log::trace!(target: "remote_text_server::preview_file", "[{}] Detected Markdown file", &obj.id);
 
-                let res = Command::new("pandoc")
-                    .arg("--verbose")
-                    .arg("-s")
-                    .args(["-o", this_commit_path.canonicalize().unwrap().join(output_name).to_str().unwrap()])
-                    .arg(format!("./files/{}/{filename}", &obj.id))
-                    .output();
+            let output_name = format!("{name_root}.html");
+            log::trace!(target: "remote_text_server::preview_file", "[{}] Output name: {}", &obj.id, output_name);
+            let log_name = format!("{name_root}.log");
+            log::trace!(target: "remote_text_server::preview_file", "[{}] Log name: {log_name}", &obj.id);
 
-                let Ok(res) = res else {
-                    log::error!(target: "remote_text_server::preview_file", "[{}] Unable to launch pandoc", &obj.id);
-                    return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
-                };
-                log::trace!(target: "remote_text_server::preview_file", "[{}] Ran pandoc", &obj.id);
+            let res = Command::new("pandoc")
+                .arg("--verbose")
+                .arg("-s")
+                .args(["-o", this_commit_path.canonicalize().unwrap().join(output_name).to_str().unwrap()])
+                .arg(format!("./files/{}/{filename}", &obj.id))
+                .output();
 
-                let Ok(_) = fs::write(this_commit_path.join(log_name), &res.stderr) else {
-                    log::error!(target: "remote_text_server::preview_file", "[{}] Unable to write pandoc log", &obj.id);
-                    return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
-                };
-                log::trace!(target: "remote_text_server::preview_file", "[{}] Wrote pandoc log to file", &obj.id);
+            let Ok(res) = res else {
+                log::error!(target: "remote_text_server::preview_file", "[{}] Unable to launch pandoc", &obj.id);
+                return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+            };
+            log::trace!(target: "remote_text_server::preview_file", "[{}] Ran pandoc", &obj.id);
 
-                let Ok(log_content) = std::str::from_utf8(&res.stderr) else {
-                    log::error!(target: "remote_text_server::preview_file", "[{}] Pandoc log is not UTF-8", &obj.id);
-                    return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
-                };
+            let Ok(_) = fs::write(this_commit_path.join(log_name), &res.stderr) else {
+                log::error!(target: "remote_text_server::preview_file", "[{}] Unable to write pandoc log", &obj.id);
+                return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+            };
+            log::trace!(target: "remote_text_server::preview_file", "[{}] Wrote pandoc log to file", &obj.id);
 
-                return Ok(Box::new(warp::reply::json(&CompilationOutput {
-                    state: if res.status.success() { CompilationState::SUCCESS } else { CompilationState::FAILURE },
-                    log: log_content.to_string(),
-                })));
-            }
-            _ => {
-                log::trace!(target: "remote_text_server::preview_file", "[{}] Unknown file type ({})", &obj.id, ext);
-            }
+            let Ok(log_content) = std::str::from_utf8(&res.stderr) else {
+                log::error!(target: "remote_text_server::preview_file", "[{}] Pandoc log is not UTF-8", &obj.id);
+                return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+            };
+            log::trace!(target: "remote_text_server::preview_file", "[{}] Validated pandoc log as UTF-8", &obj.id);
+
+            let Ok(_) = fs::write(this_commit_path.join(format!("{name_root}.status")), if res.status.success() { "SUCCESS" } else { "FAILURE" }) else {
+                log::error!(target: "remote_text_server::preview_file", "[{}] Unable to write pandoc status", &obj.id);
+                return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+            };
+            log::trace!(target: "remote_text_server::preview_file", "[{}] Wrote pandoc status", &obj.id);
+
+            log::info!(target: "remote_text_server::preview_file", "[{}] Returning status and log of pandoc preview attempt", &obj.id);
+            return Ok(Box::new(warp::reply::json(&CompilationOutput {
+                state: if res.status.success() { CompilationState::SUCCESS } else { CompilationState::FAILURE },
+                log: log_content.to_string(),
+            })));
+        }
+        _ => {
+            log::info!(target: "remote_text_server::preview_file", "[{}] Unknown file type ({})", &obj.id, ext);
         }
     }
 
