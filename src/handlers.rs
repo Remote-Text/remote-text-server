@@ -47,7 +47,7 @@ pub(crate) async fn create_file(name: NameAndOptionalContent, addr: Option<Socke
     let now = Utc::now();
     let uuid = Uuid::new_v4();
     log::info!(target: "remote_text_server::create_file", "[{}] Creating new file", uuid);
-    let Ok(repo) = Repository::init(FILES_DIR.join(uuid.to_string())) else {
+    let Ok(repo) = Repository::init(FILES_DIR().join(uuid.to_string())) else {
         log::error!(target: "remote_text_server::create_file", "[{}] Cannot create repository", uuid);
         panic!();
     };
@@ -312,7 +312,7 @@ pub(crate) async fn delete_file(obj: IdOnly, repos: Arc<Mutex<HashMap<Uuid, Repo
 
     // 3. Delete file on disk
     let uuid_string = &obj.id.to_string();
-    match fs::remove_dir_all(FILES_DIR.join(uuid_string)) {
+    match fs::remove_dir_all(FILES_DIR().join(uuid_string)) {
         Ok(_) => {
             log::info!(target: "remote_text_server::delete_file", "[{}] Target directory successfully removed", &obj.id);
             return Ok(Box::new(StatusCode::OK))
@@ -363,7 +363,7 @@ pub(crate) async fn preview_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap
     let status_name = format!("{name_root}.status");
     log::trace!(target: "remote_text_server::preview_file", "[{}] Status name: {status_name}", &obj.id);
 
-    let previews_path = PREVIEWS_DIR.join(&obj.id.to_string());
+    let previews_path = PREVIEWS_DIR().join(&obj.id.to_string());
     log::trace!(target: "remote_text_server::preview_file", "[{}] Creating preview path for file (if it doesn't exist)", &obj.id);
     let Ok(_) = fs::create_dir_all(&previews_path) else {
         log::error!(target: "remote_text_server::preview_file", "[{}] Cannot create preview path ({:?})", &obj.id, previews_path);
@@ -491,7 +491,7 @@ fn convert_with_pandoc(uuid: &Uuid, name_root: &String, filename: &String, this_
         .arg("--verbose")
         .arg("-s")
         .args(["-o", this_commit_path.canonicalize().unwrap().join(output_name).to_str().unwrap()])
-        .arg(FILES_DIR.join(&uuid.to_string()).join(filename))
+        .arg(FILES_DIR().join(&uuid.to_string()).join(filename))
         .output();
 
     let Ok(res) = res else {

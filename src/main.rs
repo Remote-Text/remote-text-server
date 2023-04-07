@@ -37,8 +37,12 @@ mod api;
 mod previewing;
 mod files;
 
-const FILES_DIR: PathBuf = Path::new(".").join("files");
-const PREVIEWS_DIR: PathBuf = Path::new(".").join("previews");
+fn FILES_DIR() -> PathBuf {
+    Path::new(".").join("files")
+}
+fn PREVIEWS_DIR() -> PathBuf {
+    Path::new(".").join("previews")
+}
 
 #[tokio::main]
 async fn main() {

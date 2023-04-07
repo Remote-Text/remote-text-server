@@ -12,7 +12,7 @@ use crate::api::FileSummary;
 use crate::FILES_DIR;
 
 pub(crate) fn repos() -> Arc<Mutex<HashMap<Uuid, Repository>>> {
-    Arc::new(Mutex::new(if let Ok(entries) = fs::read_dir(FILES_DIR) {
+    Arc::new(Mutex::new(if let Ok(entries) = fs::read_dir(FILES_DIR()) {
         entries.into_iter()
             .filter_map(|entry| entry.ok())
             .filter_map(|entry| {
