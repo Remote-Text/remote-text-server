@@ -20,7 +20,7 @@ use uuid::Uuid;
 use warp::fs::file;
 use warp::hyper::StatusCode;
 
-use crate::{files, FILES_DIR, previewing};
+use crate::{files, FILES_DIR, previewing, PREVIEWS_DIR};
 use crate::api::{CompilationOutput, CompilationState, File, FileIDAndOptionalGitHash, FileSummary, GitCommit, GitHistory, GitRef, PreviewDetail, PreviewDetailType};
 use crate::files::repos;
 
@@ -363,7 +363,7 @@ pub(crate) async fn preview_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap
     let status_name = format!("{name_root}.status");
     log::trace!(target: "remote_text_server::preview_file", "[{}] Status name: {status_name}", &obj.id);
 
-    let previews_path = Path::new("./previews").join(&obj.id.to_string());
+    let previews_path = PREVIEWS_DIR.join(&obj.id.to_string());
     log::trace!(target: "remote_text_server::preview_file", "[{}] Creating preview path for file (if it doesn't exist)", &obj.id);
     let Ok(_) = fs::create_dir_all(&previews_path) else {
         log::error!(target: "remote_text_server::preview_file", "[{}] Cannot create preview path ({:?})", &obj.id, previews_path);
