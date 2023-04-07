@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
 use git2::Repository;
 use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;

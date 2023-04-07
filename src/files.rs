@@ -3,9 +3,11 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
+
 use chrono::{DateTime, NaiveDateTime, Utc};
 use git2::{Repository, Sort};
 use uuid::Uuid;
+
 use crate::api::FileSummary;
 
 pub(crate) fn repos() -> Arc<Mutex<HashMap<Uuid, Repository>>> {
