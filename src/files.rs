@@ -9,7 +9,7 @@ use uuid::Uuid;
 use crate::api::FileSummary;
 
 pub(crate) fn repos() -> Arc<Mutex<HashMap<Uuid, Repository>>> {
-    Arc::new(Mutex::new(if let Ok(entries) = fs::read_dir(".") {
+    Arc::new(Mutex::new(if let Ok(entries) = fs::read_dir("./files/") {
         entries.into_iter()
             .filter_map(|entry| entry.ok())
             .filter_map(|entry| {

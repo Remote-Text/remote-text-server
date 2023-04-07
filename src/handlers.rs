@@ -47,7 +47,7 @@ pub(crate) async fn create_file(name: NameAndOptionalContent, addr: Option<Socke
     let now = Utc::now();
     let uuid = Uuid::new_v4();
     log::info!(target: "remote_text_server::create_file", "[{}] Creating new file", uuid);
-    let Ok(repo) = Repository::init(uuid.to_string()) else {
+    let Ok(repo) = Repository::init(format!("./files/{}", uuid.to_string())) else {
         log::error!(target: "remote_text_server::create_file", "[{}] Cannot create repository", uuid);
         panic!();
     };
@@ -58,7 +58,7 @@ pub(crate) async fn create_file(name: NameAndOptionalContent, addr: Option<Socke
         log::warn!(target: "remote_text_server::create_file", "[{}] Non-socket connection", uuid);
         "Non Socket Remote User".to_string()
     };
-    let fp = Path::new(uuid.to_string().as_str()).join(&name.name);
+    let fp = Path::new(".").join("files").join(uuid.to_string()).join(&name.name);
     let Ok(mut file) = std::fs::File::create(fp) else {
         log::error!(target: "remote_text_server::create_file", "[{}] Unable to create file", uuid);
         panic!("Unable to create file!")
@@ -312,7 +312,7 @@ pub(crate) async fn delete_file(obj: IdOnly, repos: Arc<Mutex<HashMap<Uuid, Repo
 
     // 3. Delete file on disk
     let uuid_string = &obj.id.to_string();
-    match fs::remove_dir_all(format!("./{uuid_string}")) {
+    match fs::remove_dir_all(format!("./files/{uuid_string}")) {
         Ok(_) => {
             log::info!(target: "remote_text_server::delete_file", "[{}] Target directory successfully removed", &obj.id);
             return Ok(Box::new(StatusCode::OK))
