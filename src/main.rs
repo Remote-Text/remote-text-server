@@ -2,6 +2,7 @@
 extern crate pretty_env_logger;
 
 use std::io::Bytes;
+use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -35,6 +36,8 @@ mod handlers;
 mod api;
 mod previewing;
 mod files;
+
+const FILES_DIR: PathBuf = Path::new(".").join("files");
 
 #[tokio::main]
 async fn main() {
