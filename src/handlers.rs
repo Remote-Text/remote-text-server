@@ -18,7 +18,9 @@ use git2::build::CheckoutBuilder;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use warp::fs::file;
-use warp::hyper::StatusCode;
+use warp::http::HeaderValue;
+use warp::hyper::{Body, StatusCode};
+use warp::reply::Response;
 
 use crate::{files, FILES_DIR, previewing, PREVIEWS_DIR};
 use crate::api::{CompilationOutput, CompilationState, File, FileIDAndOptionalGitHash, FileSummary, GitCommit, GitHistory, GitRef, PreviewDetail, PreviewDetailType};
@@ -533,14 +535,79 @@ TODO: Comment get_preview() functionality & general description
 TODO: do
 
 */
-pub(crate) async fn get_preview(obj: FileIDAndOptionalGitHash) -> Result<Box<dyn warp::Reply>, Infallible> {
-    // if files::file_exists(obj.id) {
-    //
-    //     Ok(Box::new(previewing::get_preview(obj.id, obj.hash.unwrap_or("HEAD".to_string()))))
-    // } else {
-    //     // Even the raw file doesn't exist
-        Ok(Box::new(StatusCode::NOT_FOUND))
-    // }
+pub(crate) async fn get_preview(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+    let preview_path = PREVIEWS_DIR().join(obj.id.to_string()).join(obj.hash);
+    log::trace!(target: "remote_text_server::get_preview", "[{}] Looking for preview path '{:?}'", obj.id, preview_path);
+    if !preview_path.exists() {
+        log::info!(target: "remote_text_server::get_preview", "[{}] Preview path does not exist", obj.id,);
+        return Ok(Box::new(StatusCode::NOT_FOUND))
+    }
+
+    let Ok(entries) = fs::read_dir(preview_path) else {
+        log::error!(target: "remote_text_server::get_preview", "[{}] Cannot read preview path, though it exists", obj.id);
+        return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR))
+    };
+
+    let items = entries.into_iter()
+        .filter_map(|entry| entry.ok())
+        .filter_map(|entry| {
+            let file_type = entry.file_type();
+            Some((entry, file_type.ok()?))
+        })
+        .filter(|(entry, file_type)| file_type.is_file())
+        .filter_map(|(entry, _)| {
+            let file_name = entry.file_name().into_string();
+            log::trace!(target: "remote_text_server::get_preview", "[{}] Found file {:?}", obj.id, file_name);
+            Some((entry, file_name.ok()?))
+        })
+        .map(|(entry, file_name)| {
+            let path = entry.path();
+            (file_name, path)
+        })
+        .filter_map(|(file_name, path)| {
+            let ext = path.extension()?.to_owned();
+            Some((file_name, path, ext))
+        })
+        .filter_map(|(file_name, path, ext)| {
+            Some((file_name, path, ext.to_str()?.to_owned()))
+        })
+        .collect::<Vec<_>>();
+
+    if let Some((file_name, path, extension)) = items.iter().find(|(entry, file_name, extension)| {
+        extension == &"pdf"
+    }) {
+        println!("found pdf");
+        println!("{file_name}");
+        let Ok(data) = fs::read(path) else {
+            log::error!(target: "remote_text_server::get_preview", "[{}] Cannot read previewed file", obj.id);
+            return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+        };
+        println!("Read {} bytes", data.len());
+        let mut resp = Response::new(Body::from(data));
+        resp.headers_mut().insert("content-type", HeaderValue::from_static("application/pdf"));
+        return Ok(Box::new(resp));
+        // let base64 = engine::general_purpose::STANDARD_NO_PAD.encode(data);
+        // return Ok(Box::new(warp::reply::json(&PreviewDetail {
+        //     name: file_name.to_string(),
+        //     id: obj.id,
+        //     r#type: PreviewDetailType::PDF,
+        //     data: base64,
+        // })));
+    }
+    if let Some((file_name, path, extension)) = items.iter().find(|(entry, file_name, extension)| {
+        extension == &"html"
+    }) {
+        println!("found hmtl");
+        println!("{file_name}");
+        let Ok(data) = fs::read(path) else {
+            log::error!(target: "remote_text_server::get_preview", "[{}] Cannot read previewed file", obj.id);
+            return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+        };
+        println!("Read {} bytes", data.len());
+        let resp = Response::new(Body::from(data));
+        return Ok(Box::new(resp));
+    }
+    Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR))
 }
 
 #[derive(Serialize, Deserialize, Clone)]
