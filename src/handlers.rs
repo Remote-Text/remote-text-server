@@ -532,14 +532,13 @@ fn convert_with_pandoc(uuid: &Uuid, name_root: &String, filename: &String, this_
 
 
 TODO: Comment get_preview() functionality & general description
-TODO: do
 
 */
 pub(crate) async fn get_preview(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
     let preview_path = PREVIEWS_DIR().join(obj.id.to_string()).join(obj.hash);
     log::trace!(target: "remote_text_server::get_preview", "[{}] Looking for preview path '{:?}'", obj.id, preview_path);
     if !preview_path.exists() {
-        log::info!(target: "remote_text_server::get_preview", "[{}] Preview path does not exist", obj.id,);
+        log::info!(target: "remote_text_server::get_preview", "[{}] Preview path does not exist", obj.id);
         return Ok(Box::new(StatusCode::NOT_FOUND))
     }
 
@@ -573,40 +572,59 @@ pub(crate) async fn get_preview(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap<
         })
         .collect::<Vec<_>>();
 
+    let Some((status_file_name, status_path, _)) = items.iter().find(|(entry, file_name, extension)| {
+        extension == &"status"
+    }) else {
+        log::error!(target: "remote_text_server::get_preview", "[{}] Cannot locate preview status file", obj.id);
+        return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+    };
+    let Ok(status_contents) = fs::read_to_string(status_path) else {
+        log::error!(target: "remote_text_server::get_preview", "[{}] Cannot read preview status file {status_file_name}", &obj.id);
+        return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+    };
+    log::trace!(target: "remote_text_server::get_preview", "[{}] Loaded preview status", &obj.id);
+    match status_contents.as_str() {
+        "SUCCESS" => {
+            log::trace!(target: "remote_text_server::get_preview", "[{}] Status of previewing was success", obj.id);
+        },
+        "FAILURE" => {
+            log::info!(target: "remote_text_server::get_preview", "[{}] Status of previewing was failure", obj.id);
+            return Ok(Box::new(StatusCode::NOT_FOUND));
+        },
+        _ => {
+            log::error!(target: "remote_text_server::get_preview", "[{}] Although status code file exists, it has invalid contents", &obj.id);
+            return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+        }
+    };
+
     if let Some((file_name, path, extension)) = items.iter().find(|(entry, file_name, extension)| {
         extension == &"pdf"
     }) {
-        println!("found pdf");
-        println!("{file_name}");
+        log::trace!(target: "remote_text_server::get_preview", "[{}] Found PDF file {file_name}", obj.id);
         let Ok(data) = fs::read(path) else {
             log::error!(target: "remote_text_server::get_preview", "[{}] Cannot read previewed file", obj.id);
             return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
         };
-        println!("Read {} bytes", data.len());
+        log::trace!(target: "remote_text_server::get_preview", "[{}] Read {} bytes", obj.id, data.len());
         let mut resp = Response::new(Body::from(data));
         resp.headers_mut().insert("content-type", HeaderValue::from_static("application/pdf"));
+        log::info!(target: "remote_text_server::get_preview", "[{}] Returning previewed PDF", obj.id);
         return Ok(Box::new(resp));
-        // let base64 = engine::general_purpose::STANDARD_NO_PAD.encode(data);
-        // return Ok(Box::new(warp::reply::json(&PreviewDetail {
-        //     name: file_name.to_string(),
-        //     id: obj.id,
-        //     r#type: PreviewDetailType::PDF,
-        //     data: base64,
-        // })));
     }
     if let Some((file_name, path, extension)) = items.iter().find(|(entry, file_name, extension)| {
         extension == &"html"
     }) {
-        println!("found hmtl");
-        println!("{file_name}");
+        log::trace!(target: "remote_text_server::get_preview", "[{}] Found HTML file {file_name}", obj.id);
         let Ok(data) = fs::read(path) else {
             log::error!(target: "remote_text_server::get_preview", "[{}] Cannot read previewed file", obj.id);
             return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
         };
-        println!("Read {} bytes", data.len());
+        log::trace!(target: "remote_text_server::get_preview", "[{}] Read {} bytes", obj.id, data.len());
         let resp = Response::new(Body::from(data));
+        log::info!(target: "remote_text_server::get_preview", "[{}] Returning previewed PDF", obj.id);
         return Ok(Box::new(resp));
     }
+    log::error!(target: "remote_text_server::get_preview", "[{}] Neither PDF nor HTML files found", obj.id);
     Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR))
 }
 
