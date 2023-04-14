@@ -36,6 +36,7 @@ mod handlers;
 mod api;
 mod previewing;
 mod files;
+mod tests;
 
 fn FILES_DIR() -> PathBuf {
     Path::new(".").join("files")
