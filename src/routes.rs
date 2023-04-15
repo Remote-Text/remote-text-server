@@ -61,7 +61,7 @@ fn preview_file(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> impl Filter<Ext
 fn get_preview(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
     warp::path("getPreview")
         .and(json_body())
-        .and_then(handlers::get_preview)
+        .and_then(move |obj| handlers::get_preview(obj, repos.clone()))
 }
 
 // Filter that maps to the get_history api call, uses the json_body to restrict file size, then tries to fulfill the request

@@ -18,9 +18,11 @@ use git2::build::CheckoutBuilder;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use warp::fs::file;
-use warp::hyper::StatusCode;
+use warp::http::HeaderValue;
+use warp::hyper::{Body, StatusCode};
+use warp::reply::Response;
 
-use crate::{files, FILES_DIR, previewing, PREVIEWS_DIR};
+use crate::{files, FILES_DIR, PREVIEWS_DIR};
 use crate::api::{CompilationOutput, CompilationState, File, FileIDAndOptionalGitHash, FileSummary, GitCommit, GitHistory, GitRef, PreviewDetail, PreviewDetailType};
 use crate::files::repos;
 
@@ -525,22 +527,129 @@ fn convert_with_pandoc(uuid: &Uuid, name_root: &String, filename: &String, this_
     });
 }
 
-/*
-// GET PREVIEW //
 
+/// Given a file ID and a commit hash for that file, return an already-previewed file
+///
+/// ## Arguments
+///
+/// * `obj`: the file ID and the commit hash, from the JSON data in the HTTP request
+/// * `repos`: The lock on the list of files. Currently unused
+///
+/// ## Returns
+///
+/// * if the preview exists and can be successfully read, the contents of the previewed file
+/// * if the file was never previewed or the preview failed, HTTP 404
+/// * HTTP 500 otherwise (primarily when files cannot be read)
+pub(crate) async fn get_preview(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+    // `preview_path` looks like `PREVIEWS_DIR/f204bae2-4c98-4952-86e6-cb02bc72049b/a0a81fdd89425113d9c1703401039c68ee3d855e`
+    let preview_path = PREVIEWS_DIR().join(obj.id.to_string()).join(obj.hash);
+    log::trace!(target: "remote_text_server::get_preview", "[{}] Looking for preview path '{:?}'", obj.id, preview_path);
+    if !preview_path.exists() {
+        // If the path does not exist, then the file was never previewed
+        log::info!(target: "remote_text_server::get_preview", "[{}] Preview path does not exist", obj.id);
+        return Ok(Box::new(StatusCode::NOT_FOUND))
+    }
 
-TODO: Comment get_preview() functionality & general description
-TODO: do
+    let Ok(entries) = fs::read_dir(preview_path) else {
+        // I think this error would only happen if the permissions on the folder don't allow us
+        //   to read it, since we already know that it exists
+        log::error!(target: "remote_text_server::get_preview", "[{}] Cannot read preview path, though it exists", obj.id);
+        return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR))
+    };
 
-*/
-pub(crate) async fn get_preview(obj: FileIDAndOptionalGitHash) -> Result<Box<dyn warp::Reply>, Infallible> {
-    // if files::file_exists(obj.id) {
-    //
-    //     Ok(Box::new(previewing::get_preview(obj.id, obj.hash.unwrap_or("HEAD".to_string()))))
-    // } else {
-    //     // Even the raw file doesn't exist
-        Ok(Box::new(StatusCode::NOT_FOUND))
-    // }
+    let items = entries.into_iter() // Iterate over all entries in dir
+        .filter_map(|entry| entry.ok())// entry exists (I'm not sure when this would fail)
+        .filter_map(|entry| { // Fetch the filetype (e.g., file, dir, symlink) of this entry
+            let file_type = entry.file_type();
+            Some((entry, file_type.ok()?))
+        })
+        .filter(|(entry, file_type)| file_type.is_file())// entry is file
+        .filter_map(|(entry, _)| { // Fetch the name of this file
+            let file_name = entry.file_name().into_string();
+            log::trace!(target: "remote_text_server::get_preview", "[{}] Found file {:?}", obj.id, file_name);
+            Some((entry, file_name.ok()?))
+        })
+        .map(|(entry, file_name)| { // Fetch the path of this file
+            let path = entry.path();
+            (file_name, path)
+        })
+        .filter_map(|(file_name, path)| { // Fetch the extension of this file
+            let ext = path.extension()?.to_owned();
+            Some((file_name, path, ext))
+        })
+        .filter_map(|(file_name, path, ext)| { // Convert from OsString
+            Some((file_name, path, ext.to_str()?.to_owned()))
+        })
+        .collect::<Vec<_>>(); // Collect into Vec (i.e. list/array)
+
+    let Some((status_file_name, status_path, _)) = items.iter().find(|(_, _, extension)| {
+        extension == &"status" // First file with a ".status" extension
+    }) else {
+        // If we can't find it, either the file was never previewed or the status file has disappeared
+        // Since we know the file has been previewed, it's unclear what's happened, so bail
+        log::error!(target: "remote_text_server::get_preview", "[{}] Cannot locate preview status file", obj.id);
+        return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+    };
+    let Ok(status_contents) = fs::read_to_string(status_path) else {
+        // Probably a permissions error again
+        log::error!(target: "remote_text_server::get_preview", "[{}] Cannot read preview status file {status_file_name}", &obj.id);
+        return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+    };
+    log::trace!(target: "remote_text_server::get_preview", "[{}] Loaded preview status", &obj.id);
+    match status_contents.as_str() {
+        "SUCCESS" => {
+            // Previewing the file was successful; continue fetching previewed file
+            log::trace!(target: "remote_text_server::get_preview", "[{}] Status of previewing was success", obj.id);
+        },
+        "FAILURE" => {
+            // Previewing the file was unsuccessful; why are they trying?
+            log::info!(target: "remote_text_server::get_preview", "[{}] Status of previewing was failure", obj.id);
+            return Ok(Box::new(StatusCode::NOT_FOUND));
+        },
+        _ => {
+            // Status file is corrupt
+            log::error!(target: "remote_text_server::get_preview", "[{}] Although status code file exists, it has invalid contents", &obj.id);
+            return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+        }
+    };
+
+    if let Some((file_name, path, _)) = items.iter().find(|(_, _, extension)| {
+        extension == &"pdf" // First file with a ".pdf" extension
+    }) {
+        log::trace!(target: "remote_text_server::get_preview", "[{}] Found PDF file {file_name}", obj.id);
+        let Ok(data) = fs::read(path) else {
+            // Probably a permissions error
+            log::error!(target: "remote_text_server::get_preview", "[{}] Cannot read previewed file", obj.id);
+            return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+        };
+        log::trace!(target: "remote_text_server::get_preview", "[{}] Read {} bytes", obj.id, data.len());
+        let mut resp = Response::new(Body::from(data));
+        // This header is mostly unnecessary, I _think_, because most browsers perform "MIME sniffing"
+        //   and detect the contents as a PDF on their own, but this is best practice, potentially
+        //   necessary on some clients, and makes it easier to detect the type of output file
+        resp.headers_mut().insert("content-type", HeaderValue::from_static("application/pdf"));
+        log::info!(target: "remote_text_server::get_preview", "[{}] Returning previewed PDF", obj.id);
+        return Ok(Box::new(resp));
+    }
+    if let Some((file_name, path, _)) = items.iter().find(|(_, _, extension)| {
+        extension == &"html" // First file with a ".html" extension
+    }) {
+        log::trace!(target: "remote_text_server::get_preview", "[{}] Found HTML file {file_name}", obj.id);
+        let Ok(data) = fs::read(path) else {
+            // Probably a permissions error
+            log::error!(target: "remote_text_server::get_preview", "[{}] Cannot read previewed file", obj.id);
+            return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+        };
+        log::trace!(target: "remote_text_server::get_preview", "[{}] Read {} bytes", obj.id, data.len());
+        // Since HTML is how webpages are expressed, there's no "application/html" MIME type
+        let resp = Response::new(Body::from(data));
+        log::info!(target: "remote_text_server::get_preview", "[{}] Returning previewed PDF", obj.id);
+        return Ok(Box::new(resp));
+    }
+    // The only output formats we currently use are PDF or HTML, so if neither are found, we're
+    //   missing our output file.
+    log::error!(target: "remote_text_server::get_preview", "[{}] Neither PDF nor HTML files found", obj.id);
+    Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR))
 }
 
 #[derive(Serialize, Deserialize, Clone)]

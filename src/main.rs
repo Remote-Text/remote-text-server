@@ -34,7 +34,6 @@ warp:
 mod routes;
 mod handlers;
 mod api;
-mod previewing;
 mod files;
 
 fn FILES_DIR() -> PathBuf {
@@ -46,6 +45,12 @@ fn PREVIEWS_DIR() -> PathBuf {
 
 #[tokio::main]
 async fn main() {
+    if std::env::var_os("RUST_LOG").is_none() {
+        // Set `RUST_LOG=todos=debug` to see debug logs,
+        // this only shows access logs.
+        std::env::set_var("RUST_LOG", "remote_text_server=warn");
+    }
+
     // Initialize pretty_env_logger so we can get organized/colorful logs
     pretty_env_logger::init();
 
@@ -70,7 +75,7 @@ async fn main() {
         .with(cors)
         .with(log);
 
-    log::trace!(target: "remote_text_server::main", "Running server");
+    log::info!(target: "remote_text_server::main", "Running server");
     // Runs the server with the set up filters
     warp::serve(routes)
         .run(([0, 0, 0, 0], 3030))
