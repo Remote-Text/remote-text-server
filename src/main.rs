@@ -34,7 +34,6 @@ warp:
 mod routes;
 mod handlers;
 mod api;
-mod previewing;
 mod files;
 
 fn FILES_DIR() -> PathBuf {
