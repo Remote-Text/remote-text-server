@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, NaiveDateTime, Utc};
 use git2::{Repository, Sort};
+use git2::build::CheckoutBuilder;
 use uuid::Uuid;
 
 use crate::api::FileSummary;
@@ -51,6 +52,65 @@ pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<Fi
                 panic!()
             };
 
+            log::trace!(target: "remote_text_server::list_files", "[{}] Creating revwalker", uuid);
+            let mut walker = repo.revwalk().ok().unwrap();
+            _ = walker.set_sorting(Sort::TIME);
+            _ = walker.push_head();
+            _ = repo.branches(None).map(|branches| {
+                branches
+                    .filter_map(|branch| branch.ok())
+                    // .for_each(|(branch, _)| {
+                    //     let Ok(Some(name)) = branch.name() else {
+                    //         return
+                    //     };
+                    //     println!("pushing {name}");
+                    //     // let y = x.push_ref(name);
+                    //     let y = x.push_ref(format!("refs/heads/{name}").as_str());
+                    //     println!("{:?}", y);
+                    // })
+                    // .filter_map(|(branch, _)| branch.get().target())
+                    // .for_each(|oid| {
+                    //     log::trace!(target: "remote_text_server::list_files", "[{}] Pushing ")
+                    //     let y = x.push(oid);
+                    //     println!("{:?}", y);
+                    // })
+                    .filter_map(|(branch, _)| {
+                        let target = branch.get().target();
+                        Some((branch, target?))
+                    })
+                    .for_each(|(branch, oid)| {
+                        log::trace!(target: "remote_text_server::list_files", "[{}] Pushing {:?} to refwalker", uuid, branch.name());
+                        let Ok(_) = walker.push(oid) else {
+                            log::warn!(target: "remote_text_server::list_files", "[{}] Failed to push {:?}", uuid, branch.name());
+                            return
+                        };
+                    })
+                    // .filter_map(|(branch, _)| {
+                    //     Some((branch.name().ok().to_owned(), branch.get().target()?))
+                    // })
+                    // .for_each(|(name, oid)| {
+                    //     log::trace!(target: "remote_text_server::list_files", "[{}] Pushing {:?} to refwalker", uuid, name);
+                    //     let Ok(_) = x.push(oid) else {
+                    //         log::warn!(target: "remote_text_server::list_files", "[{}] Failed to push {:?}", uuid, name);
+                    //         return
+                    //     };
+                    // })
+            });
+            let first_oid = walker.next().unwrap().unwrap();
+            log::trace!(target: "remote_text_server::list_files", "[{}] Found most recent commit; setting HEAD ({})", uuid, first_oid.to_string());
+
+            let Ok(_) = repo.set_head_detached(first_oid) else {
+                //Not sure why we'd get this error if we know that the commit exists
+                ////The hash we were given does not exist
+                log::error!(target: "remote_text_server::list_files", "[{}] Unable to set HEAD", &uuid);
+                panic!()
+            };
+            log::trace!(target: "remote_text_server::list_files", "[{}] Set HEAD; checking out", &uuid);
+            let Ok(_) = repo.checkout_head(Some(CheckoutBuilder::new().force())) else {
+                log::error!(target: "remote_text_server::list_files", "[{}] Unable to checkout", &uuid);
+                panic!()
+            };
+
             let files = entries.into_iter()
                 .filter_map(|entry| entry.ok())
                 .filter_map(|entry| {
@@ -75,47 +135,42 @@ pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<Fi
                 panic!("Cannot convert filename {:?}", fname)
             };
             let filename = _filename.to_string();
+            log::trace!(target: "remote_text_server::list_files", "[{}] Found filename ({filename})", uuid);
 
-            log::trace!(target: "remote_text_server::list_files", "[{}] Revwalking", uuid);
-            let mut x = repo.revwalk().ok().unwrap();
-            _ = x.set_sorting(Sort::TIME);
-            _ = x.push_head();
-            let oid = x.next().unwrap().unwrap();
-            log::trace!(target: "remote_text_server::list_files", "[{}] Found most recent commit ({})", uuid, oid.to_string());
-            let c = repo.find_commit(oid).unwrap();
-            let _d = NaiveDateTime::from_timestamp_opt(c.time().seconds(), 0).unwrap();
-            let d: DateTime<Utc> = DateTime::from_utc(_d, Utc);
-            log::trace!(target: "remote_text_server::list_files", "[{}] Found most recent timestamp ({})", uuid, d.to_string());
+            let first_commit = repo.find_commit(first_oid).unwrap();
+            let first_naive_date = NaiveDateTime::from_timestamp_opt(first_commit.time().seconds(), 0).unwrap();
+            let first_date: DateTime<Utc> = DateTime::from_utc(first_naive_date, Utc);
+            log::trace!(target: "remote_text_server::list_files", "[{}] Found most recent timestamp ({})", uuid, first_date.to_string());
 
-            let Some(_oid) = x.last() else {
-                log::trace!(target: "remote_text_server::list_files", "[{}] First commit is last commit ({})", uuid, oid.to_string());
+            let Some(_last_oid) = walker.last() else {
+                log::trace!(target: "remote_text_server::list_files", "[{}] First commit is last commit", uuid);
                 return FileSummary {
                     name: filename,
                     id: *uuid,
-                    edited_time: d,
-                    created_time: d,
+                    edited_time: first_date,
+                    created_time: first_date,
                 }
             };
-            let Some(oid) = _oid.ok() else {
+            let Some(last_oid) = _last_oid.ok() else {
                 log::trace!(target: "remote_text_server::list_files", "[{}] Oldest commit is invalid", uuid);
                 return FileSummary {
                     name: filename,
                     id: *uuid,
-                    edited_time: d,
-                    created_time: d,
+                    edited_time: first_date,
+                    created_time: first_date,
                 }
             };
-            log::trace!(target: "remote_text_server::list_files", "[{}] Found oldest commit ({})", uuid, oid.to_string());
-            let c = repo.find_commit(oid).unwrap();
-            let _d = NaiveDateTime::from_timestamp_opt(c.time().seconds(), 0).unwrap();
-            let d2: DateTime<Utc> = DateTime::from_utc(_d, Utc);
-            log::trace!(target: "remote_text_server::list_files", "[{}] Found oldest timestamp ({})", uuid, d2.to_string());
+            log::trace!(target: "remote_text_server::list_files", "[{}] Found oldest commit ({})", uuid, last_oid.to_string());
+            let last_commit = repo.find_commit(last_oid).unwrap();
+            let last_naive_date = NaiveDateTime::from_timestamp_opt(last_commit.time().seconds(), 0).unwrap();
+            let last_date: DateTime<Utc> = DateTime::from_utc(last_naive_date, Utc);
+            log::trace!(target: "remote_text_server::list_files", "[{}] Found oldest timestamp ({})", uuid, last_date.to_string());
             //git log --all -1 --format=%cd
             FileSummary {
                 name: filename,
                 id: *uuid,
-                edited_time: d,
-                created_time: d2,
+                edited_time: first_date,
+                created_time: last_date,
             }
         }).collect::<Vec<FileSummary>>();
     log::info!(target: "remote_text_server::list_files", "Found {} file(s)", list.len());
