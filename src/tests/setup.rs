@@ -13,7 +13,7 @@ use warp::body::json;
 use warp::path::Exact;
 use warp::test;
 
-use crate::{files, routes, api};
+use crate::{files, routes, api, handlers};
 use crate::files::repos;
 use crate::routes::{get_routes, list_files};
 
@@ -64,15 +64,18 @@ fn PREVIEWS_DIR() -> PathBuf {
 
 #[tokio::test]
 async fn test_list_files_filter() {
-    let repositories = files::repos();
+    let repositories = repos();
     let filter = list_files(repositories);
 
-    let result = warp::test::request()
+
+
+    let result = test::request()
         .method("POST")
-        .path("listFiles")
+        .path("/listFiles")
         .reply(&filter)
         .await;
 
-    // assert_eq!(result.status(), 200);
-
+    assert_eq!(result.status(), 200);
 }
+
+

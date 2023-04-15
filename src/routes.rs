@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use futures::task::Spawn;
 
 use git2::Repository;
 use serde::{Deserialize, Serialize};
@@ -7,7 +8,7 @@ use serde::de::DeserializeOwned;
 use uuid::Uuid;
 use warp::Filter;
 
-use crate::handlers;
+use crate::{files, handlers};
 
 // Filter that limits the size of JSON files
 pub(crate) fn json_body<T: DeserializeOwned + Send>() -> impl Filter<Extract = (T,), Error = warp::Rejection> + Clone {
