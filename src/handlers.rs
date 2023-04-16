@@ -30,8 +30,8 @@ pub(crate) async fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> 
 
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct NameAndOptionalContent {
-    name: String,
-    content: Option<String>
+    pub(crate) name: String,
+    pub(crate) content: Option<String>
 }
 
 /*
