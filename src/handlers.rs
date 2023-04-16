@@ -643,7 +643,7 @@ pub(crate) async fn get_preview(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap<
         log::trace!(target: "remote_text_server::get_preview", "[{}] Read {} bytes", obj.id, data.len());
         // Since HTML is how webpages are expressed, there's no "application/html" MIME type
         let resp = Response::new(Body::from(data));
-        log::info!(target: "remote_text_server::get_preview", "[{}] Returning previewed PDF", obj.id);
+        log::info!(target: "remote_text_server::get_preview", "[{}] Returning previewed HTML file", obj.id);
         return Ok(Box::new(resp));
     }
     // The only output formats we currently use are PDF or HTML, so if neither are found, we're

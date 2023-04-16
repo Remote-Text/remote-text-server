@@ -37,6 +37,7 @@ pub(crate) fn repos() -> Arc<Mutex<HashMap<Uuid, Repository>>> {
 }
 
 pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<FileSummary> {
+    log::trace!(target: "remote_text_server::list_files", "Listing files");
     let list = repos.lock().unwrap().iter()
         .map(|(uuid, repo)| {
             if !Path::new(repo.path()).exists() {
