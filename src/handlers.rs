@@ -54,13 +54,14 @@ pub(crate) async fn create_file(name: NameAndOptionalContent, addr: Option<Socke
         panic!();
     };
     let time = Time::new(now.timestamp(), 0);
-    let them = if addr.is_some() {
-        addr.unwrap().to_string()
-    } else {
-        log::warn!(target: "remote_text_server::create_file", "[{}] Non-socket connection", uuid);
-        "Non Socket Remote User".to_string()
+    let them = match addr {
+        Some(addr) => addr.to_string(),
+        None => {
+            log::warn!(target: "remote_text_server::create_file", "[{}] Non-socket connection", uuid);
+            "Non Socket Remote User".to_string()
+        }
     };
-    let fp = Path::new(".").join("files").join(uuid.to_string()).join(&name.name);
+    let fp = FILES_DIR().join(uuid.to_string()).join(&name.name);
     let Ok(mut file) = std::fs::File::create(fp) else {
         log::error!(target: "remote_text_server::create_file", "[{}] Unable to create file", uuid);
         panic!("Unable to create file!")
@@ -73,7 +74,7 @@ pub(crate) async fn create_file(name: NameAndOptionalContent, addr: Option<Socke
     let our_sig = Signature::new("Remote Text", "blinky@remote-text.com", &time).unwrap();
     let mut index = repo.index().unwrap();
     index.add_all(&["."], IndexAddOption::DEFAULT, None).unwrap();
-    index.write();
+    index.write().unwrap();
     let tree_id = index.write_tree().unwrap();
     let co = repo.commit(Some("HEAD"), &their_sig, &our_sig, "", &repo.find_tree(tree_id).unwrap(), &vec![]).unwrap();
     log::info!(target: "remote_text_server::create_file", "[{}] Made initial commit ({})", uuid, co.to_string());
@@ -173,17 +174,14 @@ fn get_file_contents(uuid: &Uuid, hash: &String, repos: &MutexGuard<HashMap<Uuid
                 }
             } else {
                 log::error!(target: "remote_text_server::get_file_contents", "[{}] Cannot read repo dir", &uuid);
-                eprintln!("Cannot read repo dir for UUID {}", &uuid);
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
             }
         } else {
             log::error!(target: "remote_text_server::get_file_contents", "[{}] Parent to git dir does not exist", &uuid);
-            eprintln!("Parent to git dir does not exist for UUID {}", &uuid);
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     } else {
         log::error!(target: "remote_text_server::get_file_contents", "[{}] No repo exists", &uuid);
-        eprintln!("No repo exists for UUID {}", &uuid);
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 }
