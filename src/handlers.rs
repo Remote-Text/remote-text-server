@@ -204,6 +204,14 @@ TODO: Comment save_file() functionality & general description
 
 */
 pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+    if obj.branch == "" {
+        log::info!(target: "remote_text_server::save_file", "[{}] Tried to save to empty branch", obj.id);
+        return Ok(Box::new(StatusCode::BAD_REQUEST));
+    }
+    if obj.name == "" {
+        log::info!(target: "remote_text_server::save_file", "[{}] Tried to save to empty file name", obj.id);
+        return Ok(Box::new(StatusCode::BAD_REQUEST));
+    }
     log::trace!(target: "remote_text_server::save_file", "[{}] Acquiring lock on hash map", &obj.id);
     let repos = repos.lock().unwrap();
     let Some(repo) = repos.get(&obj.id) else {
@@ -218,6 +226,18 @@ pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<Socket
         log::trace!(target: "remote_text_server::save_file", "[{}] Parent to git dir does not exist", &obj.id);
         return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
     }
+
+    //We want to do all our checks before we make any changes on-disk
+    let Ok(parent_oid) = Oid::from_str(obj.parent.as_str()) else {
+        log::info!(target: "remote_text_server::save_file", "[{}] Parent is not a valid git hash ({})", &obj.id, obj.parent);
+        return Ok(Box::new(StatusCode::BAD_REQUEST));
+    };
+    let Ok(par) = repo.find_commit(parent_oid) else {
+        log::info!(target: "remote_text_server::save_file", "[{}] Unable to locate parent commit", &obj.id);
+        return Ok(Box::new(StatusCode::BAD_REQUEST));
+    };
+    log::trace!(target: "remote_text_server::save_file", "[{}] Located parent commit ({})", &obj.id, par.id().to_string());
+
     if let Ok(entries) = std::fs::read_dir(path) {
         let cd = std::env::current_dir().unwrap();
         for path in entries.into_iter()
@@ -249,15 +269,6 @@ pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<Socket
     log::trace!(target: "remote_text_server::save_file", "[{}] Wrote content to {}", &obj.id, &obj.name);
 
     //Perform commit
-    let Ok(parent_oid) = Oid::from_str(obj.parent.as_str()) else {
-        log::error!(target: "remote_text_server::save_file", "[{}] Parent is not a valid git hash ({})", &obj.id, obj.parent);
-        return Ok(Box::new(StatusCode::BAD_REQUEST));
-    };
-    let Ok(par) = repo.find_commit(parent_oid) else {
-        log::error!(target: "remote_text_server::save_file", "[{}] Unable to locate parent commit", &obj.id);
-        return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
-    };
-    log::trace!(target: "remote_text_server::save_file", "[{}] Located parent commit ({})", &obj.id, par.id().to_string());
     log::trace!(target: "remote_text_server::save_file", "[{}] Detaching head", &obj.id);
     repo.set_head_detached(parent_oid).unwrap();
     log::trace!(target: "remote_text_server::save_file", "[{}] Detached head", &obj.id);
@@ -275,7 +286,7 @@ pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<Socket
     let our_sig = Signature::new("Remote Text", "blinky@remote-text.com", &time).unwrap();
     let mut index = repo.index().unwrap();
     index.add_all(&["."], IndexAddOption::DEFAULT, None).unwrap();
-    index.write();
+    index.write().unwrap();
     let tree_id = index.write_tree().unwrap();
     log::trace!(target: "remote_text_server::save_file", "[{}] Making commit", &obj.id);
     let co = repo.commit(Some(format!("refs/heads/{}", obj.branch).as_str()), &their_sig, &our_sig, "", &repo.find_tree(tree_id).unwrap(), &[&par]).unwrap();
