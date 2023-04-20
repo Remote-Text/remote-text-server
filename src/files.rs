@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 use std::ffi::OsString;
 use std::fs;
+use std::io::Write;
+use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, NaiveDateTime, Utc};
-use git2::{Repository, Sort};
+use git2::{IndexAddOption, Repository, Signature, Sort, Time};
 use git2::build::CheckoutBuilder;
 use uuid::Uuid;
 
@@ -176,4 +178,49 @@ pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<Fi
         }).collect::<Vec<FileSummary>>();
     log::info!(target: "remote_text_server::list_files", "Found {} file(s)", list.len());
     return list;
+}
+
+pub(crate) fn create_file(file_name: String, file_content: Option<String>, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<FileSummary, &'static str> {
+    let now = Utc::now();
+    let uuid = Uuid::new_v4();
+    log::info!(target: "remote_text_server::create_file", "[{}] Creating new file", uuid);
+    let Ok(repo) = Repository::init(FILES_DIR().join(uuid.to_string())) else {
+        log::error!(target: "remote_text_server::create_file", "[{}] Cannot create repository", uuid);
+        return Err("Cannot create repository");
+    };
+    let time = Time::new(now.timestamp(), 0);
+    let them = match addr {
+        Some(addr) => addr.to_string(),
+        None => {
+            log::warn!(target: "remote_text_server::create_file", "[{}] Non-socket connection", uuid);
+            "Non Socket Remote User".to_string()
+        }
+    };
+    let fp = FILES_DIR().join(uuid.to_string()).join(&file_name);
+    let Ok(mut file) = std::fs::File::create(fp) else {
+        log::error!(target: "remote_text_server::create_file", "[{}] Unable to create file", uuid);
+        return Err("Unable to create file!");
+    };
+    if let Some(content) = file_content {
+        log::trace!(target: "remote_text_server::create_file", "[{}] Writing initial content to file", uuid);
+        file.write_all(content.as_ref()).unwrap();
+    }
+    let their_sig = Signature::new(&them, "blinky@remote-text.com", &time).unwrap();
+    let our_sig = Signature::new("Remote Text", "blinky@remote-text.com", &time).unwrap();
+    let mut index = repo.index().unwrap();
+    index.add_all(&["."], IndexAddOption::DEFAULT, None).unwrap();
+    index.write().unwrap();
+    let tree_id = index.write_tree().unwrap();
+    let co = repo.commit(Some("HEAD"), &their_sig, &our_sig, "", &repo.find_tree(tree_id).unwrap(), &vec![]).unwrap();
+    log::info!(target: "remote_text_server::create_file", "[{}] Made initial commit ({})", uuid, co.to_string());
+    let file_summary = FileSummary {
+        name: file_name,
+        id: uuid,
+        edited_time: now,
+        created_time: now,
+    };
+    log::trace!(target: "remote_text_server::create_file", "[{}] Inserting new repo into hash map", uuid);
+    repos.lock().unwrap().insert(uuid, repo);
+    log::trace!(target: "remote_text_server::create_file", "[{}] Inserted new repo into hash map", uuid);
+    return Ok(file_summary);
 }

@@ -45,49 +45,16 @@ repository (?) to create a new file instance, as well as start its git history.
 // TODO: Make files save to a designated directory
 
 */
-pub(crate) async fn create_file(name: NameAndOptionalContent, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<impl warp::Reply, Infallible> {
-    let now = Utc::now();
-    let uuid = Uuid::new_v4();
-    log::info!(target: "remote_text_server::create_file", "[{}] Creating new file", uuid);
-    let Ok(repo) = Repository::init(FILES_DIR().join(uuid.to_string())) else {
-        log::error!(target: "remote_text_server::create_file", "[{}] Cannot create repository", uuid);
-        panic!();
-    };
-    let time = Time::new(now.timestamp(), 0);
-    let them = match addr {
-        Some(addr) => addr.to_string(),
-        None => {
-            log::warn!(target: "remote_text_server::create_file", "[{}] Non-socket connection", uuid);
-            "Non Socket Remote User".to_string()
+pub(crate) async fn create_file(name: NameAndOptionalContent, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+    return match files::create_file(name.name, name.content, addr, repos) {
+        Ok(file_summary) => {
+            Ok(Box::new(warp::reply::json(&file_summary)))
+        },
+        Err(msg) => {
+            Ok(Box::new(warp::reply::with_status(msg, StatusCode::INTERNAL_SERVER_ERROR)))
+            // Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR))
         }
-    };
-    let fp = FILES_DIR().join(uuid.to_string()).join(&name.name);
-    let Ok(mut file) = std::fs::File::create(fp) else {
-        log::error!(target: "remote_text_server::create_file", "[{}] Unable to create file", uuid);
-        panic!("Unable to create file!")
-    };
-    if let Some(content) = name.content {
-        log::trace!(target: "remote_text_server::create_file", "[{}] Writing initial content to file", uuid);
-        file.write_all(content.as_ref()).unwrap();
     }
-    let their_sig = Signature::new(&them, "blinky@remote-text.com", &time).unwrap();
-    let our_sig = Signature::new("Remote Text", "blinky@remote-text.com", &time).unwrap();
-    let mut index = repo.index().unwrap();
-    index.add_all(&["."], IndexAddOption::DEFAULT, None).unwrap();
-    index.write().unwrap();
-    let tree_id = index.write_tree().unwrap();
-    let co = repo.commit(Some("HEAD"), &their_sig, &our_sig, "", &repo.find_tree(tree_id).unwrap(), &vec![]).unwrap();
-    log::info!(target: "remote_text_server::create_file", "[{}] Made initial commit ({})", uuid, co.to_string());
-    let example_file = FileSummary {
-        name: name.name,
-        id: uuid,
-        edited_time: now,
-        created_time: now,
-    };
-    log::trace!(target: "remote_text_server::create_file", "[{}] Inserting new repo into hash map", uuid);
-    repos.lock().unwrap().insert(uuid, repo);
-    log::trace!(target: "remote_text_server::create_file", "[{}] Inserted new repo into hash map", uuid);
-    return Ok(warp::reply::json(&example_file));
 }
 
 #[derive(Serialize, Deserialize, Clone)]
