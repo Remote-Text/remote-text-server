@@ -133,8 +133,7 @@ async fn test_get_file() {
 
         let fileGitHash = fileGitHash.deref().get(&deserializedResult.id).unwrap();
 
-        let rawGitHash = "HEAD";
-        let rawGitHash = fileGitHash.revparse_single(rawGitHash).unwrap();
+        let rawGitHash = fileGitHash.revparse_single("HEAD").unwrap();
 
         FileIDAndGitHash { id: deserializedResult.id, hash: rawGitHash.id().to_string() }
     };
