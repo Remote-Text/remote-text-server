@@ -44,6 +44,7 @@ fn save_file(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> impl Filter<Extrac
         .and_then(move |obj, addr| handlers::save_file(obj, addr, repos.clone()))
 }
 
+// Filter that maps to the delete_file api call, then attempts to fufill the request using handler code
 fn delete_file(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> impl Filter<Extract = (impl warp::Reply,), Error = warp::Rejection> + Clone {
     warp::path("deleteFile")
         .and(json_body())

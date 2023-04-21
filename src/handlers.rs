@@ -274,6 +274,7 @@ pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<Socket
 
 */
 pub(crate) async fn delete_file(obj: IdOnly, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+    // Before running the function, attempt to acquire a lock on the hash map
     log::trace!(target: "remote_text_server::delete_file", "[{}] Acquiring lock on hash map", &obj.id);
     let mut repos = repos.lock().unwrap();
 
@@ -283,8 +284,7 @@ pub(crate) async fn delete_file(obj: IdOnly, repos: Arc<Mutex<HashMap<Uuid, Repo
         return Ok(Box::new(StatusCode::NOT_FOUND));
     };
 
-    // 2. Delete repo rust object
-    // // First delete the repo object from the hash map
+    // 2. Delete the repo object from the hash map
     repos.remove(&obj.id);
     log::info!(target: "remote_text_server::delete_file", "[{}] Target repo deleted", &obj.id);
 
