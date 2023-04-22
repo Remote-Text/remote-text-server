@@ -22,3 +22,4 @@ log = "0.4.17"
 rand = "0.8.5"
 futures = "0.3.27"
 openssl = { version = "0.10", features = ["vendored"] }
+time = { version = "0.3.20", features = ["serde", "serde-well-known", "macros"] }

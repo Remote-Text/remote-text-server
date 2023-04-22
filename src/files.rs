@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use chrono::{DateTime, NaiveDateTime, Utc};
 use git2::{IndexAddOption, Repository, Signature, Sort, Time};
 use git2::build::CheckoutBuilder;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::api::FileSummary;
@@ -140,6 +141,8 @@ pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<Fi
             log::trace!(target: "remote_text_server::list_files", "[{}] Found filename ({filename})", uuid);
 
             let first_commit = repo.find_commit(first_oid).unwrap();
+            let _first_date = OffsetDateTime::from_unix_timestamp(first_commit.time().seconds()).unwrap();
+            println!("{}", _first_date.to_string());
             let first_naive_date = NaiveDateTime::from_timestamp_opt(first_commit.time().seconds(), 0).unwrap();
             let first_date: DateTime<Utc> = DateTime::from_utc(first_naive_date, Utc);
             log::trace!(target: "remote_text_server::list_files", "[{}] Found most recent timestamp ({})", uuid, first_date.to_string());
@@ -150,7 +153,7 @@ pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<Fi
                     name: filename,
                     id: *uuid,
                     edited_time: first_date,
-                    created_time: first_date,
+                    created_time: _first_date,
                 }
             };
             let Some(last_oid) = _last_oid.ok() else {
@@ -159,7 +162,7 @@ pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<Fi
                     name: filename,
                     id: *uuid,
                     edited_time: first_date,
-                    created_time: first_date,
+                    created_time: _first_date,
                 }
             };
             log::trace!(target: "remote_text_server::list_files", "[{}] Found oldest commit ({})", uuid, last_oid.to_string());
@@ -172,7 +175,7 @@ pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<Fi
                 name: filename,
                 id: *uuid,
                 edited_time: first_date,
-                created_time: last_date,
+                created_time: _first_date,
             }
         }).collect::<Vec<FileSummary>>();
     log::info!(target: "remote_text_server::list_files", "Found {} file(s)", list.len());
@@ -216,7 +219,7 @@ pub(crate) fn create_file(file_name: String, file_content: Option<String>, addr:
         name: file_name,
         id: uuid,
         edited_time: now,
-        created_time: now,
+        created_time: OffsetDateTime::now_utc(),
     };
     log::trace!(target: "remote_text_server::create_file", "[{}] Inserting new repo into hash map", uuid);
     repos.lock().unwrap().insert(uuid, repo);

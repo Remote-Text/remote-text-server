@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 mod normal_date_format {
@@ -58,8 +59,9 @@ pub(crate) struct FileSummary {
     pub(crate) id: Uuid,
     #[serde(with = "normal_date_format")]
     pub(crate) edited_time: DateTime<Utc>,
-    #[serde(with = "normal_date_format")]
-    pub(crate) created_time: DateTime<Utc>
+    // #[serde(with = "normal_date_format")]
+    #[serde(with = "time::serde::iso8601")]
+    pub(crate) created_time: OffsetDateTime
 }
 
 #[derive(Serialize, Deserialize, Clone)]
