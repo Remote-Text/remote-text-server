@@ -1,15 +1,9 @@
 #[macro_use] extern crate log;
 extern crate pretty_env_logger;
 
-use std::io::Bytes;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
-use warp::{Filter, get};
-use warp::body::json;
-use warp::path::Exact;
+use warp::Filter;
 
 /* // EXTERNAL CRATE USAGE //
 
@@ -36,9 +30,11 @@ mod handlers;
 mod api;
 mod files;
 
+#[allow(non_snake_case)]
 fn FILES_DIR() -> PathBuf {
     Path::new(".").join("files")
 }
+#[allow(non_snake_case)]
 fn PREVIEWS_DIR() -> PathBuf {
     Path::new(".").join("previews")
 }
@@ -54,7 +50,8 @@ async fn main() {
     // Initialize pretty_env_logger so we can get organized/colorful logs
     pretty_env_logger::init();
 
-    if (std::env::args().collect::<Vec<String>>().get(1) == Some(&"-vv".to_string())) {
+    #[allow(non_snake_case)]
+    if std::env::args().collect::<Vec<String>>().get(1) == Some(&"-vv".to_string()) {
         // log::trace!(target: "remote_text_server::main", "ENV_VARS");
         let VERGEN_BUILD_DATE = env!("VERGEN_BUILD_DATE");
         let VERGEN_BUILD_TIMESTAMP = env!("VERGEN_BUILD_TIMESTAMP");

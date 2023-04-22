@@ -1,30 +1,22 @@
-use std::any::Any;
 use std::collections::HashMap;
 use std::convert::Infallible;
-use std::ffi::OsString;
 use std::fs;
-use std::hash::Hash;
-use std::io::Write;
 use std::net::SocketAddr;
-use std::ops::Index;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use base64::{engine, Engine};
-use chrono::{DateTime, Days, Utc};
-use git2::{IndexAddOption, Oid, Repository, Signature, StatusShow, Time};
+use chrono::Utc;
+use git2::{IndexAddOption, Oid, Repository, Signature, Time};
 use git2::build::CheckoutBuilder;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use warp::fs::file;
 use warp::http::HeaderValue;
 use warp::hyper::{Body, StatusCode};
 use warp::reply::Response;
 
 use crate::{files, FILES_DIR, PREVIEWS_DIR};
-use crate::api::{CompilationOutput, CompilationState, File, FileIDAndOptionalGitHash, FileSummary, GitCommit, GitHistory, GitRef, PreviewDetail, PreviewDetailType};
-use crate::files::repos;
+use crate::api::{CompilationOutput, CompilationState, File, GitCommit, GitHistory, GitRef};
 
 pub(crate) async fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<impl warp::Reply, Infallible> {
     return Ok(warp::reply::json(&files::list_files(repos)));
@@ -206,7 +198,6 @@ pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<Socket
     log::trace!(target: "remote_text_server::save_file", "[{}] Located parent commit ({})", &obj.id, par.id().to_string());
 
     if let Ok(entries) = std::fs::read_dir(path) {
-        let cd = std::env::current_dir().unwrap();
         for path in entries.into_iter()
             .filter_map(|entry| entry.ok())
             .filter_map(|entry| {
@@ -314,7 +305,7 @@ pub(crate) async fn preview_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap
     log::trace!(target: "remote_text_server::preview_file", "[{}] Acquiring lock on hash map", &obj.id);
     let repos = repos.lock().unwrap();
     log::trace!(target: "remote_text_server::preview_file", "[{}] Calling get_file_contents", &obj.id);
-    let (filename, content) = match get_file_contents(&obj.id, &obj.hash, &repos) {
+    let (filename, _content) = match get_file_contents(&obj.id, &obj.hash, &repos) {
         Ok((filename, content)) => (filename, content),
         Err(code) => {
             log::trace!(target: "remote_text_server::preview_file", "[{}] Unable to locate file", &obj.id);
@@ -516,7 +507,7 @@ fn convert_with_pandoc(uuid: &Uuid, name_root: &String, filename: &String, this_
 /// * if the preview exists and can be successfully read, the contents of the previewed file
 /// * if the file was never previewed or the preview failed, HTTP 404
 /// * HTTP 500 otherwise (primarily when files cannot be read)
-pub(crate) async fn get_preview(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+pub(crate) async fn get_preview(obj: FileIDAndGitHash, _repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
     // `preview_path` looks like `PREVIEWS_DIR/f204bae2-4c98-4952-86e6-cb02bc72049b/a0a81fdd89425113d9c1703401039c68ee3d855e`
     let preview_path = PREVIEWS_DIR().join(obj.id.to_string()).join(obj.hash);
     log::trace!(target: "remote_text_server::get_preview", "[{}] Looking for preview path '{:?}'", obj.id, preview_path);
@@ -539,7 +530,7 @@ pub(crate) async fn get_preview(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap<
             let file_type = entry.file_type();
             Some((entry, file_type.ok()?))
         })
-        .filter(|(entry, file_type)| file_type.is_file())// entry is file
+        .filter(|(_, file_type)| file_type.is_file())// entry is file
         .filter_map(|(entry, _)| { // Fetch the name of this file
             let file_name = entry.file_name().into_string();
             log::trace!(target: "remote_text_server::get_preview", "[{}] Found file {:?}", obj.id, file_name);
@@ -668,7 +659,7 @@ pub(crate) async fn get_history(file_id: IdOnly, repos: Arc<Mutex<HashMap<Uuid, 
     log::trace!(target: "remote_text_server::get_history", "[{}] Iterating through branches", &file_id.id);
     let refs = repo.branches(None).unwrap().map(|b| {
         log::trace!(target: "remote_text_server::get_history", "[{}] Investigating branch", &file_id.id);
-        let (branch, branch_type) = b.unwrap();
+        let (branch, _) = b.unwrap();
         let name = branch.name().unwrap().unwrap().to_string();
         log::trace!(target: "remote_text_server::get_history", "[{}] Branch name: {}", &file_id.id, name);
         let hash = branch.get().peel_to_commit().unwrap().id().to_string();
