@@ -185,7 +185,7 @@ async fn test_save_file_filter() {
 
     // Create a file
     let repositories = repos();
-    let filter = routes::create_file(repositories);
+    let filter = routes::create_file(repositories.clone());
 
     let obj = handlers::NameAndOptionalContent{ name: "TestFile".to_string(), content: None };
 
@@ -216,7 +216,7 @@ async fn test_save_file_filter() {
     // Save a new file as a child of the file we just created
     let filter = routes::save_file(repositories.clone());
     let childFileInfo = handlers::FileAndHashAndBranchName {
-        name : TestFileChild,
+        name : "TestFileChild".to_string(),
         id : Uuid::new_v4(),
         content : "".to_string(),
         parent : "".to_string(),
