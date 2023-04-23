@@ -188,11 +188,11 @@ fn get_file_contents(uuid: &Uuid, hash: &String, repos: &MutexGuard<HashMap<Uuid
 
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct FileAndHashAndBranchName {
-    name: String,
-    id: Uuid,
-    content: String,
-    parent: String,
-    branch: String
+    pub(crate) name: String,
+    pub(crate) id: Uuid,
+    pub(crate) content: String,
+    pub(crate) parent: String,
+    pub(crate) branch: String
 }
 
 /*
@@ -545,7 +545,7 @@ pub(crate) async fn get_preview(obj: FileIDAndOptionalGitHash) -> Result<Box<dyn
 
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct IdOnly {
-    id: Uuid
+    pub(crate) id: Uuid
 }
 
 /*
