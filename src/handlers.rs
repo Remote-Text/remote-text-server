@@ -24,8 +24,8 @@ pub(crate) async fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> 
 
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct NameAndOptionalContent {
-    name: String,
-    content: Option<String>
+    pub(crate) name: String,
+    pub(crate) content: Option<String>
 }
 
 /*
@@ -147,11 +147,11 @@ fn get_file_contents(uuid: &Uuid, hash: &String, repos: &MutexGuard<HashMap<Uuid
 
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct FileAndHashAndBranchName {
-    name: String,
-    id: Uuid,
-    content: String,
-    parent: String,
-    branch: String
+    pub(crate) name: String,
+    pub(crate) id: Uuid,
+    pub(crate) content: String,
+    pub(crate) parent: String,
+    pub(crate) branch: String
 }
 
 /*
@@ -621,7 +621,7 @@ pub(crate) async fn get_preview(obj: FileIDAndGitHash, _repos: Arc<Mutex<HashMap
 
 #[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct IdOnly {
-    id: Uuid
+    pub(crate) id: Uuid
 }
 
 /*

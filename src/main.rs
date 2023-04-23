@@ -29,6 +29,7 @@ mod routes;
 mod handlers;
 mod api;
 mod files;
+mod tests;
 
 #[allow(non_snake_case)]
 fn FILES_DIR() -> PathBuf {
