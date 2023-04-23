@@ -4,33 +4,24 @@
 extern crate pretty_env_logger;
 
 use std::fs;
-use std::io::Bytes;
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
-use std::process::id;
-use std::str::Utf8Error;
 
-use chrono::{DateTime, Utc};
 use futures::task::Spawn;
-use serde::{Deserialize, Serialize};
-use serde::de::DeserializeOwned;
-use uuid::Uuid;
-use warp::{cors, Filter, get};
-use warp::body::json;
-use warp::path::Exact;
-use warp::test;
 use serde_json;
-use serde_json::Value::String;
+use uuid::Uuid;
+use warp::test;
 
-use crate::{files, routes, api, handlers};
+use crate::{api, handlers, routes};
 use crate::files::repos;
-use crate::handlers::{FileAndHashAndBranchName, FileIDAndGitHash, IdOnly};
+use crate::handlers::FileIDAndGitHash;
 use crate::routes::get_file;
 
-
+#[allow(non_snake_case)]
 fn FILES_DIR() -> PathBuf {
     Path::new(".").join("files")
 }
+#[allow(non_snake_case)]
 fn PREVIEWS_DIR() -> PathBuf {
     Path::new(".").join("previews")
 }
