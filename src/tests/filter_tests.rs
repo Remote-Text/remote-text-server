@@ -14,7 +14,7 @@ use warp::test;
 
 use crate::{api, handlers, routes};
 use crate::files::repos;
-use crate::handlers::FileIDAndGitHash;
+use crate::handlers::{FileIDAndGitHash, IdOnly};
 use crate::routes::get_file;
 
 #[allow(non_snake_case)]
@@ -34,7 +34,7 @@ fn clear_files_directory(test_name: &str, obj_id: Uuid) {
       }, Err(_) => {
             log::error!(target: "remote_text_server::tests", "[{}][{}] Test has finished, but failed to delete the test files", test_name, obj_id.to_string());
         },
-    };
+    }
 }
 
 
@@ -220,4 +220,57 @@ async fn test_save_file_filter() {
 #[tokio::test]
 async fn test_delete_file_filter() {
 
+    let _ = pretty_env_logger::try_init();
+
+    let repositories = repos();
+    let filter = routes::create_file(repositories.clone());
+
+    let obj = handlers::NameAndOptionalContent{ name: "TestFile".to_string(), content: None };
+
+    let result = test::request()
+        .method("POST")
+        .path("/createFile")
+        .json(&obj)
+        .reply(&filter)
+        .await;
+
+    let deserializedResult : api::FileSummary = serde_json::from_slice(result.body()).unwrap();
+
+    assert_eq!(result.status(), 200);
+    assert_eq!(deserializedResult.name, "TestFile");
+
+    let filter  = routes::delete_file(repositories.clone());
+
+    let obj = IdOnly { id: deserializedResult.id };
+
+    let del_file_result = test::request()
+        .method("POST")
+        .path("/deleteFile")
+        .json(&obj)
+        .reply(&filter)
+        .await;
+
+    assert_eq!(del_file_result.status(), 200);
 }
+
+
+#[tokio::test]
+async fn delete_nonexistent_repo() {
+
+    let _ = pretty_env_logger::try_init();
+
+    let repositories = repos();
+    let filter = routes::delete_file(repositories.clone());
+
+    let obj = IdOnly { id : Uuid::new_v4()};
+
+    let result = test::request()
+        .method("POST")
+        .path("/deleteFile")
+        .json(&obj)
+        .reply(&filter)
+        .await;
+
+    assert_eq!(result.status(), 404);
+}
+
