@@ -39,8 +39,8 @@ repository (?) to create a new file instance, as well as start its git history.
 */
 pub(crate) async fn create_file(name: NameAndOptionalContent, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
     return match files::create_file(name.name, name.content, addr, repos) {
-        Ok(file_summary) => {
-            Ok(Box::new(warp::reply::json(&file_summary)))
+        Ok(result) => {
+            Ok(Box::new(warp::reply::json(&result)))
         },
         Err(msg) => {
             Ok(Box::new(warp::reply::with_status(msg, StatusCode::INTERNAL_SERVER_ERROR)))

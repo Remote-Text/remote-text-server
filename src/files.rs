@@ -10,7 +10,7 @@ use git2::{IndexAddOption, Repository, Signature, Sort, Time};
 use git2::build::CheckoutBuilder;
 use uuid::Uuid;
 
-use crate::api::FileSummary;
+use crate::api::{CreateFileResult, FileSummary};
 use crate::FILES_DIR;
 
 pub(crate) fn repos() -> Arc<Mutex<HashMap<Uuid, Repository>>> {
@@ -179,7 +179,7 @@ pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<Fi
     return list;
 }
 
-pub(crate) fn create_file(file_name: String, file_content: Option<String>, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<FileSummary, &'static str> {
+pub(crate) fn create_file(file_name: String, file_content: Option<String>, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<CreateFileResult, &'static str> {
     let now = Utc::now();
     let uuid = Uuid::new_v4();
     log::info!(target: "remote_text_server::create_file", "[{}] Creating new file", uuid);
@@ -212,14 +212,14 @@ pub(crate) fn create_file(file_name: String, file_content: Option<String>, addr:
     let tree_id = index.write_tree().unwrap();
     let co = repo.commit(Some("HEAD"), &their_sig, &our_sig, "", &repo.find_tree(tree_id).unwrap(), &vec![]).unwrap();
     log::info!(target: "remote_text_server::create_file", "[{}] Made initial commit ({})", uuid, co.to_string());
-    let file_summary = FileSummary {
+    let result = CreateFileResult {
         name: file_name,
         id: uuid,
-        edited_time: now,
+        hash: co.to_string(),
         created_time: now,
     };
     log::trace!(target: "remote_text_server::create_file", "[{}] Inserting new repo into hash map", uuid);
     repos.lock().unwrap().insert(uuid, repo);
     log::trace!(target: "remote_text_server::create_file", "[{}] Inserted new repo into hash map", uuid);
-    return Ok(file_summary);
+    return Ok(result);
 }

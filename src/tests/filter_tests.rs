@@ -75,12 +75,12 @@ async fn test_create_file_filter() {
         .reply(&filter)
         .await;
 
-    let deserializedResult : api::FileSummary = serde_json::from_slice(result.body()).unwrap();
+    let deserialized_result: api::CreateFileResult = serde_json::from_slice(result.body()).unwrap();
 
     assert_eq!(result.status(), 200);
-    assert_eq!(deserializedResult.name, "TestFile");
+    assert_eq!(deserialized_result.name, "TestFile");
 
-    clear_files_directory("test_create_files_filter", deserializedResult.id);
+    clear_files_directory("test_create_files_filter", deserialized_result.id);
 }
 
 #[tokio::test]
@@ -132,20 +132,20 @@ async fn test_get_file_filter() {
 
     assert_eq!(result.status(), 200);
 
-    let deserializedResult : api::FileSummary = serde_json::from_slice(result.body()).unwrap();
+    let deserialized_result: api::CreateFileResult = serde_json::from_slice(result.body()).unwrap();
 
-    assert_eq!(deserializedResult.name, "TestFile");
+    assert_eq!(deserialized_result.name, "TestFile");
 
     let getFileInfo = {
         let fileGitHash = repositories
             .lock()
             .unwrap();
 
-        let fileGitHash = fileGitHash.deref().get(&deserializedResult.id).unwrap();
+        let fileGitHash = fileGitHash.deref().get(&deserialized_result.id).unwrap();
 
         let rawGitHash = fileGitHash.revparse_single("HEAD").unwrap();
 
-        FileIDAndGitHash { id: deserializedResult.id, hash: rawGitHash.id().to_string() }
+        FileIDAndGitHash { id: deserialized_result.id, hash: rawGitHash.id().to_string() }
     };
 
 
@@ -167,7 +167,9 @@ async fn test_get_file_filter() {
 
 // TODO: Ask Sam about the following:
 // - Is the parent field from FileAndHashAndBranchName a git hash? uuid?
+//      - `parent` is a Git hash, indicating the parent commit of this new commit that is being made
 // - How should I find the branch name to place in FAHABN? Is that a name or also a git hash?
+//      - `branch` should be something like "main". it's the name of the branch that will be forcibly updated to point to this new commit
 #[tokio::test]
 #[ignore]
 async fn test_save_file_filter() {
@@ -187,21 +189,21 @@ async fn test_save_file_filter() {
         .reply(&filter)
         .await;
 
-    let deserializedResult : api::FileSummary = serde_json::from_slice(result.body()).unwrap();
+    let deserialized_result: api::CreateFileResult = serde_json::from_slice(result.body()).unwrap();
 
     assert_eq!(result.status(), 200);
-    assert_eq!(deserializedResult.name, "TestFile");
+    assert_eq!(deserialized_result.name, "TestFile");
 
     let getFileInfo = {
         let fileGitHash = repositories
             .lock()
             .unwrap();
 
-        let fileGitHash = fileGitHash.deref().get(&deserializedResult.id).unwrap();
+        let fileGitHash = fileGitHash.deref().get(&deserialized_result.id).unwrap();
 
         let rawGitHash = fileGitHash.revparse_single("HEAD").unwrap();
 
-        FileIDAndGitHash { id: deserializedResult.id, hash: rawGitHash.id().to_string() }
+        FileIDAndGitHash { id: deserialized_result.id, hash: rawGitHash.id().to_string() }
     };
 
     // Save a new file as a child of the file we just created
@@ -234,14 +236,14 @@ async fn test_delete_file_filter() {
         .reply(&filter)
         .await;
 
-    let deserializedResult : api::FileSummary = serde_json::from_slice(result.body()).unwrap();
+    let deserialized_result: api::CreateFileResult = serde_json::from_slice(result.body()).unwrap();
 
     assert_eq!(result.status(), 200);
-    assert_eq!(deserializedResult.name, "TestFile");
+    assert_eq!(deserialized_result.name, "TestFile");
 
     let filter  = routes::delete_file(repositories.clone());
 
-    let obj = IdOnly { id: deserializedResult.id };
+    let obj = IdOnly { id: deserialized_result.id };
 
     let del_file_result = test::request()
         .method("POST")

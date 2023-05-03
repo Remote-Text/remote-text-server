@@ -63,6 +63,15 @@ pub(crate) struct FileSummary {
 }
 
 #[derive(Serialize, Deserialize, Clone)]
+pub(crate) struct CreateFileResult {
+    pub(crate) name: String,
+    pub(crate) id: Uuid,
+    pub(crate) hash: String,
+    #[serde(with = "normal_date_format")]
+    pub(crate) created_time: DateTime<Utc>
+}
+
+#[derive(Serialize, Deserialize, Clone)]
 pub(crate) struct PreviewDetail {
     pub(crate) name: String,
     pub(crate) id: Uuid,
