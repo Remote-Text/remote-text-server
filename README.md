@@ -43,31 +43,52 @@ scp target/x86_64-unknown-linux-musl/release/remote-text-server inky:
 
 ## Files
 
-### /listFiles (GET)
+### api/listFiles (GET)
 
 Returns a list of the files on the server.
 
-Responses
+Response Codes:
 - 200 OK
 - 500 Internal Server Error
 
-Example Response
+Response
 ```
-Response:
-HTTP/1.1 200 OK
-content-type: application/json
-content-length: 141
-
 [
- {
- "name":"README.md",
- "id":"ed8b1618-97b1-4a69-a080-4207152640ea",
- "edited_time":"2023-05-04T23:30:12Z",
- "created_time":"2023-05-04T23:30:12Z"
- }
+	{
+		“id”: UUID,
+		“name”: String,
+		“edited_time”: Date,
+		“created_time”: Date
+	}
 ]
 ```
 
+### api/createFile (POST)
+
+Returns a file if one exists
+
+Response Codes:
+- 200 OK
+- 400 Bad REquest
+- 413 Payload Too Large
+- 500 Internal Server Error
 
 
+Body:
+```
+{
+	“name”: String,
+	“content”: String //Optional
+}
+```
 
+Response:
+```
+{
+		“id”: UUID,
+		“name”: String,
+		“hash”: String,
+		“created_time”: Date
+	}
+
+```
