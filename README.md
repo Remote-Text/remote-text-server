@@ -90,7 +90,6 @@ Response:
 	“hash”: String,
 	“created_time”: Date
 }
-
 ```
 
 ### api/getFile (POST)
@@ -120,7 +119,6 @@ Response:
 	“name”: String,
 	“content”: String
 }
-
 ```
 
 ### api/saveFile (POST)
