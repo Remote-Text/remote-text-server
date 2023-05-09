@@ -206,3 +206,25 @@ Response:
 	“state”: String*
 }
 ```
+
+### api/getPreview (POST)
+
+Gets the preview of the file
+
+Response Codes:
+- 200 OK
+- 400 Bad Request
+- 404 Not Found
+- 413 Payload Too Large
+- 500 Internal Server Error
+
+
+Body:
+```
+{
+	“id”: UUID,
+	“hash”: String
+}
+```
+
+Response: The raw file data. Can be binary, PDF, HTML, etc.
