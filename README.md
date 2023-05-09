@@ -123,6 +123,39 @@ Response:
 
 ```
 
+### api/saveFile (POST)
+
+Saves a file
+
+Response Codes:
+- 200 OK
+- 400 Bad Request
+- 404 Not Found
+- 413 Payload Too Large
+- 500 Internal Server Error
+
+
+Body:
+```
+{
+	“id”: UUID,
+	“name”: String,
+	“content”: String,
+	“parent”: String,
+	“branch”: String
+}
+
+```
+
+Response:
+```
+{
+	“hash”: String,
+	“parent”: String
+}
+```
+
+
 
 
 
