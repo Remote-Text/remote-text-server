@@ -65,11 +65,11 @@ Response
 
 ### api/createFile (POST)
 
-Returns a file if one exists
+Creates a file on the server
 
 Response Codes:
 - 200 OK
-- 400 Bad REquest
+- 400 Bad Request
 - 413 Payload Too Large
 - 500 Internal Server Error
 
@@ -85,10 +85,44 @@ Body:
 Response:
 ```
 {
-		“id”: UUID,
-		“name”: String,
-		“hash”: String,
-		“created_time”: Date
-	}
+	“id”: UUID,
+	“name”: String,
+	“hash”: String,
+	“created_time”: Date
+}
 
 ```
+
+### api/getFile (POST)
+
+Returns a files if it exists.
+
+Response Codes:
+- 200 OK
+- 400 Bad Request
+- 404 Not Found
+- 413 Payload Too Large
+- 500 Internal Server Error
+
+
+Body:
+```
+{
+	“id”: UUID,
+	“hash”: String
+}
+```
+
+Response:
+```
+{
+	“id”: UUID,
+	“name”: String,
+	“content”: String
+}
+
+```
+
+
+
+
