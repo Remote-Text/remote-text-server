@@ -228,3 +228,42 @@ Body:
 ```
 
 Response: The raw file data. Can be binary, PDF, HTML, etc.
+
+## History
+
+### api/getHistory (POST)
+
+Gets the history of a file
+
+Response Codes:
+- 200 OK
+- 400 Bad Request
+- 404 Not Found
+- 413 Payload Too Large
+- 500 Internal Server Error
+
+
+Body:
+```
+{
+	“id”: UUID
+}
+```
+
+Response:
+```
+{
+	“commits”: [
+		{
+			“hash”: String,
+			“parent”: String //Optional
+		}
+	],
+	“refs”: [
+		{
+			“name”: String,
+			“hash”: String
+		}
+	]
+}
+```
