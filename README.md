@@ -155,7 +155,54 @@ Response:
 }
 ```
 
+### api/deleteFile (POST)
+
+Deletes a file if it exists
+
+Response Codes:
+- 200 OK
+- 400 Bad Request
+- 404 Not Found
+- 413 Payload Too Large
+- 500 Internal Server Error
 
 
+Body:
+```
+{
+	“id”: UUID
+}
+```
+
+Response: none
+
+## Preview
+
+### api/previewFile (POST)
+
+Previews a file
+
+Response Codes:
+- 200 OK
+- 400 Bad Request
+- 404 Not Found
+- 413 Payload Too Large
+- 418 File with no extension
+- 500 Internal Server Error
 
 
+Body:
+```
+{
+	“id”: UUID,
+	“hash”: String
+}
+```
+
+Response:
+```
+{
+	“log”: String,
+	“state”: String*
+}
+```
