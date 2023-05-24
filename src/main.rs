@@ -40,6 +40,8 @@ fn PREVIEWS_DIR() -> PathBuf {
     Path::new(".").join("previews")
 }
 
+const ANONYMOUS_USER: &str = "anonymous";
+
 #[tokio::main]
 async fn main() {
     if std::env::var_os("RUST_LOG").is_none() {

@@ -17,9 +17,10 @@ use warp::reply::Response;
 
 use crate::{files, FILES_DIR, PREVIEWS_DIR};
 use crate::api::{CompilationOutput, CompilationState, File, GitCommit, GitHistory, GitRef};
+use crate::files::check_user_has_access;
 
-pub(crate) async fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<impl warp::Reply, Infallible> {
-    return Ok(warp::reply::json(&files::list_files(repos)));
+pub(crate) async fn list_files(user_id: String, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<impl warp::Reply, Infallible> {
+    return Ok(warp::reply::json(&files::list_files(user_id, repos)));
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -37,8 +38,8 @@ repository (?) to create a new file instance, as well as start its git history.
 // TODO: Make files save to a designated directory
 
 */
-pub(crate) async fn create_file(name: NameAndOptionalContent, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
-    return match files::create_file(name.name, name.content, addr, repos) {
+pub(crate) async fn create_file(name: NameAndOptionalContent, addr: Option<SocketAddr>, user_id: String, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+    return match files::create_file(name.name, name.content, addr, user_id, repos) {
         Ok(result) => {
             Ok(Box::new(warp::reply::json(&result)))
         },
@@ -61,11 +62,11 @@ pub(crate) struct FileIDAndGitHash {
 TODO: Comment get_file() functionality & general description
 
 */
-pub(crate) async fn get_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+pub(crate) async fn get_file(obj: FileIDAndGitHash, user_id: String, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
     log::trace!(target: "remote_text_server::get_file", "[{}] Acquiring lock on hash map", &obj.id);
     let repos = repos.lock().unwrap();
     log::trace!(target: "remote_text_server::get_file", "[{}] Calling get_file_contents", &obj.id);
-    return Ok(match get_file_contents(&obj.id, &obj.hash, &repos) {
+    return Ok(match get_file_contents(&obj.id, &obj.hash, user_id, &repos) {
         Ok((filename, content)) => {
             log::trace!(target: "remote_text_server::get_file", "[{}] Located filename and content", &obj.id);
             Box::new(warp::reply::json(&File {
@@ -81,11 +82,34 @@ pub(crate) async fn get_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap<Uui
     })
 }
 
-fn get_file_contents(uuid: &Uuid, hash: &String, repos: &MutexGuard<HashMap<Uuid, Repository>>) -> Result<(String, String), StatusCode> {
+fn get_file_contents(uuid: &Uuid, hash: &String, user_id: String, repos: &MutexGuard<HashMap<Uuid, Repository>>) -> Result<(String, String), StatusCode> {
     let Some(repo) = repos.get(&uuid) else {
         log::info!(target: "remote_text_server::get_file_contents", "[{}] Request made to get nonexistent file", &uuid);
         return Err(StatusCode::NOT_FOUND);
     };
+
+    if !repo.path().exists() {
+        log::error!(target: "remote_text_server::get_file_contents", "[{}] No repo exists", &uuid);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    };
+    let Some(path) = repo.path().parent() else {
+        log::error!(target: "remote_text_server::get_file_contents", "[{}] Parent to git dir does not exist", &uuid);
+        return Err(StatusCode::INTERNAL_SERVER_ERROR);
+    };
+
+    log::trace!(target: "remote_text_server::get_file_contents", "[{}] Checking that user has access to document...", &uuid);
+    match files::check_user_has_access(&user_id, path) {
+        Ok(hasAccess) => {
+            if !hasAccess {
+                return Err(StatusCode::UNAUTHORIZED);
+            }
+        },
+        Err(_) => {
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    }
+    log::trace!(target: "remote_text_server::get_file_contents", "[{}] User has access to document", &uuid);
+
     /*
     repo.set_head(obj.hash.as_str()).unwrap();
      */
@@ -105,42 +129,32 @@ fn get_file_contents(uuid: &Uuid, hash: &String, repos: &MutexGuard<HashMap<Uuid
         log::error!(target: "remote_text_server::get_file_contents", "[{}] Unable to checkout", &uuid);
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     };
-    if std::path::Path::new(repo.path()).exists() {
-        if let Some(path) = repo.path().parent() {
-            if let Ok(entries) = std::fs::read_dir(path) {
-                if let Some((fname, content)) = entries.into_iter()
-                    .filter_map(|entry| entry.ok())
-                    .filter_map(|entry| {
-                        let file_type = entry.file_type().ok();
-                        Some((entry, file_type?))
-                    })
-                    // .filter_map(|entry| Some((entry, entry.file_type().ok()?)))
-                    .filter(|(_, file_type)| file_type.is_file())
-                    .filter_map(|(entry, _)| {
-                        Some((entry.file_name(), std::fs::read_to_string(entry.path()).ok()?))
-                    })
-                    .collect::<Vec<_>>()
-                    .first() {
-                    let Ok(filename) = fname.clone().into_string() else {
-                        log::error!(target: "remote_text_server::get_file_contents", "[{}] Cannot convert filename '{:?}' to string", &uuid, fname.clone());
-                        return Err(StatusCode::INTERNAL_SERVER_ERROR);
-                    };
-                    log::info!(target: "remote_text_server::get_file_contents", "[{}] Found file {}", &uuid, filename);
-                    return Ok((filename, content.to_string()));
-                } else {
-                    log::error!(target: "remote_text_server::get_file_contents", "[{}] No file found in repo", &uuid);
-                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
-                }
-            } else {
-                log::error!(target: "remote_text_server::get_file_contents", "[{}] Cannot read repo dir", &uuid);
+    if let Ok(entries) = std::fs::read_dir(path) {
+        if let Some((fname, content)) = entries.into_iter()
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| {
+                let file_type = entry.file_type().ok();
+                Some((entry, file_type?))
+            })
+            // .filter_map(|entry| Some((entry, entry.file_type().ok()?)))
+            .filter(|(_, file_type)| file_type.is_file())
+            .filter_map(|(entry, _)| {
+                Some((entry.file_name(), std::fs::read_to_string(entry.path()).ok()?))
+            })
+            .collect::<Vec<_>>()
+            .first() {
+            let Ok(filename) = fname.clone().into_string() else {
+                log::error!(target: "remote_text_server::get_file_contents", "[{}] Cannot convert filename '{:?}' to string", &uuid, fname.clone());
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
-            }
+            };
+            log::info!(target: "remote_text_server::get_file_contents", "[{}] Found file {}", &uuid, filename);
+            return Ok((filename, content.to_string()));
         } else {
-            log::error!(target: "remote_text_server::get_file_contents", "[{}] Parent to git dir does not exist", &uuid);
+            log::error!(target: "remote_text_server::get_file_contents", "[{}] No file found in repo", &uuid);
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
         }
     } else {
-        log::error!(target: "remote_text_server::get_file_contents", "[{}] No repo exists", &uuid);
+        log::error!(target: "remote_text_server::get_file_contents", "[{}] Cannot read repo dir", &uuid);
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 }
@@ -162,7 +176,7 @@ TODO: Comment save_file() functionality & general description
 //TODO: update branch to point to new commit
 
 */
-pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<SocketAddr>, user_id: String, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
     if obj.branch == "" {
         log::info!(target: "remote_text_server::save_file", "[{}] Tried to save to empty branch", obj.id);
         return Ok(Box::new(StatusCode::BAD_REQUEST));
@@ -185,6 +199,19 @@ pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<Socket
         log::trace!(target: "remote_text_server::save_file", "[{}] Parent to git dir does not exist", &obj.id);
         return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
     }
+
+    log::trace!(target: "remote_text_server::save_file", "[{}] Checking that user has access to document...", &obj.id);
+    match check_user_has_access(&user_id, path) {
+        Ok(hasAccess) => {
+            if !hasAccess {
+                return Ok(Box::new(StatusCode::UNAUTHORIZED));
+            }
+        },
+        Err(_) => {
+            return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR));
+        }
+    }
+    log::trace!(target: "remote_text_server::save_file", "[{}] User has access to document", &obj.id);
 
     //We want to do all our checks before we make any changes on-disk
     let Ok(parent_oid) = Oid::from_str(obj.parent.as_str()) else {
@@ -264,7 +291,7 @@ pub(crate) async fn save_file(obj: FileAndHashAndBranchName, addr: Option<Socket
 // DELETE FILE //
 
 */
-pub(crate) async fn delete_file(obj: IdOnly, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+pub(crate) async fn delete_file(obj: IdOnly, user_id: String, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<impl warp::Reply, Infallible> {
     // Before running the function, attempt to acquire a lock on the hash map
     log::trace!(target: "remote_text_server::delete_file", "[{}] Acquiring lock on hash map", &obj.id);
     let mut repos = repos.lock().unwrap();
@@ -272,23 +299,37 @@ pub(crate) async fn delete_file(obj: IdOnly, repos: Arc<Mutex<HashMap<Uuid, Repo
     // 1. See if repo exists
     let Some(_) = repos.get(&obj.id) else {
         log::info!(target: "remote_text_server::delete_file", "[{}] Request made to delete nonexistent file", &obj.id);
-        return Ok(Box::new(StatusCode::NOT_FOUND));
+        return Ok(StatusCode::NOT_FOUND);
     };
+
+    let repo_path = FILES_DIR().join(&obj.id.to_string());
+
+    log::trace!(target: "remote_text_server::delete_file", "[{}] Checking that user has access to document...", &obj.id);
+    match check_user_has_access(&user_id, &repo_path) {
+        Ok(hasAccess) => {
+            if !hasAccess {
+                return Ok(StatusCode::UNAUTHORIZED);
+            }
+        },
+        Err(_) => {
+            return Ok(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    }
+    log::trace!(target: "remote_text_server::delete_file", "[{}] User has access to document", &obj.id);
 
     // 2. Delete the repo object from the hash map
     repos.remove(&obj.id);
     log::info!(target: "remote_text_server::delete_file", "[{}] Target repo deleted", &obj.id);
 
     // 3. Delete file on disk
-    let uuid_string = &obj.id.to_string();
-    match fs::remove_dir_all(FILES_DIR().join(uuid_string)) {
+    match fs::remove_dir_all(repo_path) {
         Ok(_) => {
             log::info!(target: "remote_text_server::delete_file", "[{}] Target directory successfully removed", &obj.id);
-            return Ok(Box::new(StatusCode::OK))
+            return Ok(StatusCode::OK)
         },
         Err(_) => {
             log::error!(target: "remote_text_server::delete_file", "[{}] Target directory was unable to be removed", &obj.id);
-            return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR))
+            return Ok(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
 }
@@ -301,11 +342,11 @@ TODO: Comment preview_file() functionality & general description
 TODO: do
 
 */
-pub(crate) async fn preview_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+pub(crate) async fn preview_file(obj: FileIDAndGitHash, user_id: String, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
     log::trace!(target: "remote_text_server::preview_file", "[{}] Acquiring lock on hash map", &obj.id);
     let repos = repos.lock().unwrap();
     log::trace!(target: "remote_text_server::preview_file", "[{}] Calling get_file_contents", &obj.id);
-    let (filename, _content) = match get_file_contents(&obj.id, &obj.hash, &repos) {
+    let (filename, _content) = match get_file_contents(&obj.id, &obj.hash, user_id, &repos) {
         Ok((filename, content)) => (filename, content),
         Err(code) => {
             log::trace!(target: "remote_text_server::preview_file", "[{}] Unable to locate file", &obj.id);
@@ -507,12 +548,29 @@ fn convert_with_pandoc(uuid: &Uuid, name_root: &String, filename: &String, this_
 /// * if the preview exists and can be successfully read, the contents of the previewed file
 /// * if the file was never previewed or the preview failed, HTTP 404
 /// * HTTP 500 otherwise (primarily when files cannot be read)
-pub(crate) async fn get_preview(obj: FileIDAndGitHash, _repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+pub(crate) async fn get_preview(obj: FileIDAndGitHash, user_id: String, _repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+    // {
+    //     let repos = _repos.lock().unwrap();
+    //
+    // }
+    log::trace!(target: "remote_text_server::get_preview", "[{}] Checking that user has access to document...", &obj.id);
+    match check_user_has_access(&user_id, &FILES_DIR().join(&obj.id.to_string())) {
+        Ok(hasAccess) => {
+            if !hasAccess {
+                return Ok(Box::new(StatusCode::UNAUTHORIZED));
+            }
+        },
+        Err(_) => {
+            return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR))
+        }
+    }
+    log::trace!(target: "remote_text_server::get_preview", "[{}] User has access to document", &obj.id);
+
     // `preview_path` looks like `PREVIEWS_DIR/f204bae2-4c98-4952-86e6-cb02bc72049b/a0a81fdd89425113d9c1703401039c68ee3d855e`
     let preview_path = PREVIEWS_DIR().join(obj.id.to_string()).join(obj.hash);
     log::trace!(target: "remote_text_server::get_preview", "[{}] Looking for preview path '{:?}'", obj.id, preview_path);
     if !preview_path.exists() {
-        // If the path does not exist, then the file was never previewed
+        // If the path does not exist, then the file was never previewed or this UUID/hash combo does not exist
         log::info!(target: "remote_text_server::get_preview", "[{}] Preview path does not exist", obj.id);
         return Ok(Box::new(StatusCode::NOT_FOUND))
     }
@@ -630,13 +688,27 @@ pub(crate) struct IdOnly {
 TODO: Comment get_history() functionality & general description
 
 */
-pub(crate) async fn get_history(file_id: IdOnly, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
+pub(crate) async fn get_history(file_id: IdOnly, user_id: String, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<Box<dyn warp::Reply>, Infallible> {
     log::trace!(target: "remote_text_server::get_history", "[{}] Acquiring lock on hash map", &file_id.id);
     let repos = repos.lock().unwrap();
     let Some(repo) = repos.get(&file_id.id) else {
         log::info!(target: "remote_text_server::get_history", "[{}] Request made to get history of nonexistent file", &file_id.id);
         return Ok(Box::new(StatusCode::NOT_FOUND));
     };
+
+    log::trace!(target: "remote_text_server::get_history", "[{}] Checking that user has access to document...", &file_id.id);
+    match check_user_has_access(&user_id, &FILES_DIR().join(&file_id.id.to_string())) {
+        Ok(hasAccess) => {
+            if !hasAccess {
+                return Ok(Box::new(StatusCode::UNAUTHORIZED));
+            }
+        },
+        Err(_) => {
+            return Ok(Box::new(StatusCode::INTERNAL_SERVER_ERROR))
+        }
+    }
+    log::trace!(target: "remote_text_server::get_history", "[{}] User has access to document", &file_id.id);
+
     let odb = repo.odb().unwrap();
     log::trace!(target: "remote_text_server::get_history", "[{}] Opened object database", &file_id.id);
     let mut commits = vec![];

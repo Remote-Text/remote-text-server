@@ -37,21 +37,33 @@ pub(crate) fn repos() -> Arc<Mutex<HashMap<Uuid, Repository>>> {
     }))
 }
 
-pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<FileSummary> {
+pub(crate) fn list_files(user_id: String, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<FileSummary> {
     log::trace!(target: "remote_text_server::list_files", "Listing files");
+    let mut noaccess_count = 0;
     let list = repos.lock().unwrap().iter()
-        .map(|(uuid, repo)| {
+        .filter_map(|(uuid, repo)| {
             if !Path::new(repo.path()).exists() {
                 log::error!(target: "remote_text_server::list_files", "[{}] Repository does not exist", uuid);
-                panic!()
+                return None;
             }
             let Some(path) = repo.path().parent() else {
                 log::error!(target: "remote_text_server::list_files", "[{}] Parent of .git dir does not exist", uuid);
-                panic!()
+                return None;
             };
+            match check_user_has_access(&user_id, path) {
+                Ok(hasAccess) => {
+                    if !hasAccess {
+                        noaccess_count += 1;
+                        return None;
+                    }
+                },
+                Err(_) => {
+                    return None;
+                }
+            }
             let Ok(entries) = fs::read_dir(path) else {
                 log::error!(target: "remote_text_server::list_files", "[{}] Cannot read entries in directory", uuid);
-                panic!()
+                return None;
             };
 
             log::trace!(target: "remote_text_server::list_files", "[{}] Creating revwalker", uuid);
@@ -105,12 +117,12 @@ pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<Fi
                 //Not sure why we'd get this error if we know that the commit exists
                 ////The hash we were given does not exist
                 log::error!(target: "remote_text_server::list_files", "[{}] Unable to set HEAD", &uuid);
-                panic!()
+                return None;
             };
             log::trace!(target: "remote_text_server::list_files", "[{}] Set HEAD; checking out", &uuid);
             let Ok(_) = repo.checkout_head(Some(CheckoutBuilder::new().force())) else {
                 log::error!(target: "remote_text_server::list_files", "[{}] Unable to checkout", &uuid);
-                panic!()
+                return None;
             };
 
             let files = entries.into_iter()
@@ -130,11 +142,11 @@ pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<Fi
             }
             let Some(fname )= files.first() else {
                 log::error!(target: "remote_text_server::list_files", "[{}] No files found", uuid);
-                panic!("no files found!")
+                return None;
             };
             let Some(_filename) = fname.to_str() else {
                 log::error!(target: "remote_text_server::list_files", "[{}] Cannot convert filename from OsStr to str", uuid);
-                panic!("Cannot convert filename {:?}", fname)
+                return None;
             };
             let filename = _filename.to_string();
             log::trace!(target: "remote_text_server::list_files", "[{}] Found filename ({filename})", uuid);
@@ -146,21 +158,21 @@ pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<Fi
 
             let Some(_last_oid) = walker.last() else {
                 log::trace!(target: "remote_text_server::list_files", "[{}] First commit is last commit", uuid);
-                return FileSummary {
+                return Some(FileSummary {
                     name: filename,
                     id: *uuid,
                     edited_time: first_date,
                     created_time: first_date,
-                }
+                })
             };
             let Some(last_oid) = _last_oid.ok() else {
                 log::trace!(target: "remote_text_server::list_files", "[{}] Oldest commit is invalid", uuid);
-                return FileSummary {
+                return Some(FileSummary {
                     name: filename,
                     id: *uuid,
                     edited_time: first_date,
                     created_time: first_date,
-                }
+                })
             };
             log::trace!(target: "remote_text_server::list_files", "[{}] Found oldest commit ({})", uuid, last_oid.to_string());
             let last_commit = repo.find_commit(last_oid).unwrap();
@@ -168,25 +180,36 @@ pub(crate) fn list_files(repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Vec<Fi
             let last_date: DateTime<Utc> = DateTime::from_utc(last_naive_date, Utc);
             log::trace!(target: "remote_text_server::list_files", "[{}] Found oldest timestamp ({})", uuid, last_date.to_string());
             //git log --all -1 --format=%cd
-            FileSummary {
+            Some(FileSummary {
                 name: filename,
                 id: *uuid,
                 edited_time: first_date,
                 created_time: last_date,
-            }
+            })
         }).collect::<Vec<FileSummary>>();
-    log::info!(target: "remote_text_server::list_files", "Found {} file(s)", list.len());
+    log::info!(target: "remote_text_server::list_files", "Found {} file(s) (+ {noaccess_count} with no access)", list.len());
     return list;
 }
 
-pub(crate) fn create_file(file_name: String, file_content: Option<String>, addr: Option<SocketAddr>, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<CreateFileResult, &'static str> {
+pub(crate) fn create_file(file_name: String, file_content: Option<String>, addr: Option<SocketAddr>, user_id: String, repos: Arc<Mutex<HashMap<Uuid, Repository>>>) -> Result<CreateFileResult, &'static str> {
     let now = Utc::now();
     let uuid = Uuid::new_v4();
     log::info!(target: "remote_text_server::create_file", "[{}] Creating new file", uuid);
-    let Ok(repo) = Repository::init(FILES_DIR().join(uuid.to_string())) else {
+    let repo_path = FILES_DIR().join(uuid.to_string());
+    let Ok(repo) = Repository::init(&repo_path) else {
         log::error!(target: "remote_text_server::create_file", "[{}] Cannot create repository", uuid);
         return Err("Cannot create repository");
     };
+    log::trace!(target: "remote_text_server::create_file", "[{}] Created repository", uuid);
+    let Ok(_) = xattr::set(&repo_path, "com.remote-text.server.owner", user_id.as_ref()) else {
+        log::warn!(target: "remote_text_server::create_file", "[{}] Unable to write owner xattr", uuid);
+        return Err("Cannot write xattr")
+    };
+    let Ok(_) = xattr::set(&repo_path, "com.remote-text.server.allowed-users", user_id.as_ref()) else {
+        log::warn!(target: "remote_text_server::create_file", "[{}] Unable to allowed-users xattr", uuid);
+        return Err("Cannot write xattr")
+    };
+    log::trace!(target: "remote_text_server::create_file", "[{}] Wrote xattrs", uuid);
     let time = Time::new(now.timestamp(), 0);
     let them = match addr {
         Some(addr) => addr.to_string(),
@@ -195,7 +218,7 @@ pub(crate) fn create_file(file_name: String, file_content: Option<String>, addr:
             "Non Socket Remote User".to_string()
         }
     };
-    let fp = FILES_DIR().join(uuid.to_string()).join(&file_name);
+    let fp = &repo_path.join(&file_name);
     let Ok(mut file) = std::fs::File::create(fp) else {
         log::error!(target: "remote_text_server::create_file", "[{}] Unable to create file", uuid);
         return Err("Unable to create file!");
@@ -222,4 +245,29 @@ pub(crate) fn create_file(file_name: String, file_content: Option<String>, addr:
     repos.lock().unwrap().insert(uuid, repo);
     log::trace!(target: "remote_text_server::create_file", "[{}] Inserted new repo into hash map", uuid);
     return Ok(result);
+}
+
+pub(crate) fn check_user_has_access(user_id: &String, path: &Path) -> Result<bool, &'static str> {
+    let Ok(users) = xattr::get(path, "com.remote-text.server.allowed-users") else {
+        log::error!(target: "remote_text_server::check_user_has_access", "Unable to read xattrs");
+        return Err("");
+    };
+    match users {
+        None => {
+            log::warn!(target: "remote_text_server::check_user_has_access", "No allowed-users xattr");
+            return Ok(true);
+        },
+        Some(users) => {
+            let Ok(users) = String::from_utf8(users) else {
+                log::error!(target: "remote_text_server::check_user_has_access", "Invalid allowed-users xattr");
+                return Err("");
+            };
+            if !users.contains(user_id.as_str()) && !users.contains("anonymous") {
+                log::info!(target: "remote_text_server::check_user_has_access", "User is not in allowed-users '{users}'");
+                return Ok(false);
+            }
+            log::trace!(target: "remote_text_server::check_user_has_access", "User has access to document");
+            return Ok(true);
+        }
+    }
 }
