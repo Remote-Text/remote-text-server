@@ -201,11 +201,11 @@ pub(crate) fn create_file(file_name: String, file_content: Option<String>, addr:
         return Err("Cannot create repository");
     };
     log::trace!(target: "remote_text_server::create_file", "[{}] Created repository", uuid);
-    let Ok(_) = xattr::set(&repo_path, "com.remote-text.server.owner", user_id.as_ref()) else {
+    let Ok(_) = xattr::set(&repo_path, "user.com.remote-text.server.owner", user_id.as_ref()) else {
         log::warn!(target: "remote_text_server::create_file", "[{}] Unable to write owner xattr", uuid);
         return Err("Cannot write xattr")
     };
-    let Ok(_) = xattr::set(&repo_path, "com.remote-text.server.allowed-users", user_id.as_ref()) else {
+    let Ok(_) = xattr::set(&repo_path, "user.com.remote-text.server.allowed-users", user_id.as_ref()) else {
         log::warn!(target: "remote_text_server::create_file", "[{}] Unable to allowed-users xattr", uuid);
         return Err("Cannot write xattr")
     };
@@ -248,7 +248,7 @@ pub(crate) fn create_file(file_name: String, file_content: Option<String>, addr:
 }
 
 pub(crate) fn check_user_has_access(user_id: &String, path: &Path) -> Result<bool, &'static str> {
-    let Ok(users) = xattr::get(path, "com.remote-text.server.allowed-users") else {
+    let Ok(users) = xattr::get(path, "user.com.remote-text.server.allowed-users") else {
         log::error!(target: "remote_text_server::check_user_has_access", "Unable to read xattrs");
         return Err("");
     };
