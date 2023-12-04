@@ -61,38 +61,57 @@ struct Creds {
 #[derive(Debug)]
 struct NonexistentSessionID;
 impl warp::reject::Reject for NonexistentSessionID {}
-async fn login(creds: Creds, users_db: Arc<Mutex<HashMap<String, User>>>, session_db: Arc<Mutex<HashMap<Uuid, Uuid>>>) -> impl warp::Reply {
+async fn login(creds: Creds, users_db: Arc<Mutex<HashMap<String, User>>>, session_db: Arc<Mutex<HashMap<Uuid, Uuid>>>) -> Box<dyn warp::Reply> {
     let users = users_db.lock().unwrap();
+    log::trace!(target: "remote_text_server::auth::login", "Attempting to login as user {}", &creds.username);
     match users.get(&creds.username) {
-        None => warp::reply::with_status(warp::reply::Response::default(), StatusCode::UNAUTHORIZED),
+        None => {
+            log::trace!(target: "remote_text_server::auth::login", "User {} does not exist", &creds.username);
+            Box::new(StatusCode::UNAUTHORIZED)
+        }
         Some(u) => {
+            log::trace!(target: "remote_text_server::auth::login", "User {} exists; checking password", &creds.username);
             if u.password == creds.password {
+                log::trace!(target: "remote_text_server::auth::login", "Password match for user {}", &creds.username);
                 let session_id = Uuid::new_v4();
+                log::trace!(target: "remote_text_server::auth::login", "Generated session ID {session_id} for user {} [id: {}]", &creds.username, &u.id);
                 let mut sessions = session_db.lock().unwrap();
                 sessions.insert(session_id, u.id);
-                // session_id.to_string()
-                warp::reply::with_status(
-                    warp::reply::Response::new(
-                        warp::hyper::Body::from(session_id.to_string())
-                    ),
-                    StatusCode::OK)
+                Box::new(session_id.to_string())
             } else {
-                warp::reply::with_status(warp::reply::Response::default(), StatusCode::UNAUTHORIZED)
+                log::trace!(target: "remote_text_server::auth::login", "Incorrect password for user {}", &creds.username);
+                Box::new(StatusCode::UNAUTHORIZED)
             }
         }
     }
 }
 async fn logout(session_id: Uuid, session_db: Arc<Mutex<HashMap<Uuid, Uuid>>>) -> impl warp::Reply {
     let mut db = session_db.lock().unwrap();
-    db.remove(&session_id);
-    StatusCode::OK
+    log::trace!(target: "remote_text_server::auth::logout", "Attempting to remove session {session_id}");
+    match db.remove(&session_id) {
+        None => {
+            log::trace!(target: "remote_text_server::auth::logout", "Session does not exist");
+            StatusCode::UNAUTHORIZED
+        },
+        Some(user_id) => {
+            log::trace!(target: "remote_text_server::auth::logout", "Session {session_id} (user: {user_id}) removed");
+            StatusCode::OK
+        }
+    }
 }
 
 async fn is_logged_in(session_id: Uuid, session_db: Arc<Mutex<HashMap<Uuid, Uuid>>>) -> Result<Uuid, warp::Rejection> {
     let db = session_db.lock().unwrap();
+    log::trace!(target: "remote_text_server::auth::is_logged_in", "Checking session {session_id}");
     match db.get(&session_id) {
-        None => {log::error!("login attempt with nonexistent session id"); return Err(warp::reject::custom(NonexistentSessionID))},
-        Some(u) => Ok(*u)
+        None => {
+            log::trace!(target: "remote_text_server::auth::is_logged_in", "Session {session_id} does not exist");
+            Err(warp::reject::custom(NonexistentSessionID))
+        },
+        Some(u) => {
+            log::trace!(target: "remote_text_server::auth::is_logged_in", "Session {session_id} is valid and corresponds to user {u}");
+            Ok(*u)
+        }
     }
 }
 
@@ -212,11 +231,13 @@ VERGEN_SYSINFO_USER: {VERGEN_SYSINFO_USER}
     // let logged_in = warp::header::<Uuid>("SESSION_ID").and_then(|uuid: Uuid| async move { if uuid.is_max() { Ok(uuid) } else { Err(warp::reject())} });
     let logged_in = warp::header::<Uuid>("SESSION_ID").and(sessions.clone()).and_then(is_logged_in);
     let hello = warp::path!("hello" / String)
-        .and(logged_in)
+        .and(logged_in.clone())
         .map(|name, uuid| format!("Hello, {}! [id: {uuid}]", name));
-    // let logout_route = warp::post()
-    //     .and(warp::path("logout"))
-    //     .and()
+    let logout_route = warp::post()
+        .and(warp::path("logout"))
+        .and(warp::header::<Uuid>("SESSION_ID"))
+        .and(sessions.clone())
+        .then(logout);
 
     log::info!(target: "remote_text_server::main", "Searching for repositories");
     let repositories = files::repos();
@@ -230,7 +251,7 @@ VERGEN_SYSINFO_USER: {VERGEN_SYSINFO_USER}
     // Sets up logging for api requests
     let log = warp::log("remote_text_server::api");
     // Sets up the root path for the api
-    let api_root = warp::path("api");
+    let api_root = warp::path("api").and(warp::path("v2"));
 
     log::trace!(target: "remote_text_server::main", "Setting up routes");
     // Creates a chain of filters that checks/runs each function in the API
@@ -239,7 +260,7 @@ VERGEN_SYSINFO_USER: {VERGEN_SYSINFO_USER}
         .with(cors)
         .with(log);
 
-    let routes = login_route.or(hello);
+    let routes = login_route.or(hello).or(logout_route);
 
     log::info!(target: "remote_text_server::main", "Running server");
     // Runs the server with the set up filters
