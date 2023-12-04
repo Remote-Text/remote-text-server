@@ -1,9 +1,15 @@
 #[macro_use] extern crate log;
 extern crate pretty_env_logger;
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use warp::Filter;
+use futures::TryFutureExt;
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+use warp::{Filter, Rejection, Reply, reply};
+use warp::http::StatusCode;
 
 /* // EXTERNAL CRATE USAGE //
 
@@ -40,6 +46,67 @@ fn PREVIEWS_DIR() -> PathBuf {
     Path::new(".").join("previews")
 }
 
+#[derive(Serialize, Deserialize, Clone)]
+struct User {
+    username: String,
+    id: Uuid,
+    password: String
+}
+#[derive(Serialize, Deserialize, Clone)]
+struct Creds {
+    username: String,
+    password: String
+}
+
+#[derive(Debug)]
+struct NonexistentSessionID;
+impl warp::reject::Reject for NonexistentSessionID {}
+async fn login(creds: Creds, users_db: Arc<Mutex<HashMap<String, User>>>, session_db: Arc<Mutex<HashMap<Uuid, Uuid>>>) -> impl warp::Reply {
+    let users = users_db.lock().unwrap();
+    match users.get(&creds.username) {
+        None => warp::reply::with_status(warp::reply::Response::default(), StatusCode::UNAUTHORIZED),
+        Some(u) => {
+            if u.password == creds.password {
+                let session_id = Uuid::new_v4();
+                let mut sessions = session_db.lock().unwrap();
+                sessions.insert(session_id, u.id);
+                // session_id.to_string()
+                warp::reply::with_status(
+                    warp::reply::Response::new(
+                        warp::hyper::Body::from(session_id.to_string())
+                    ),
+                    StatusCode::OK)
+            } else {
+                warp::reply::with_status(warp::reply::Response::default(), StatusCode::UNAUTHORIZED)
+            }
+        }
+    }
+}
+async fn logout(session_id: Uuid, session_db: Arc<Mutex<HashMap<Uuid, Uuid>>>) -> impl warp::Reply {
+    let mut db = session_db.lock().unwrap();
+    db.remove(&session_id);
+    StatusCode::OK
+}
+
+async fn is_logged_in(session_id: Uuid, session_db: Arc<Mutex<HashMap<Uuid, Uuid>>>) -> Result<Uuid, warp::Rejection> {
+    let db = session_db.lock().unwrap();
+    match db.get(&session_id) {
+        None => {log::error!("login attempt with nonexistent session id"); return Err(warp::reject::custom(NonexistentSessionID))},
+        Some(u) => Ok(*u)
+    }
+}
+
+async fn handle_rejection(err: Rejection) -> Result<impl Reply, std::convert::Infallible> {
+    println!("handle_rejection: {:?}", err);
+    if err.is_not_found() {
+        Ok(warp::reply::with_status("NOT_FOUND", StatusCode::NOT_FOUND))
+    } else if let Some(e) = err.find::<NonexistentSessionID>() {
+        Ok(reply::with_status("UNAUTHORIZED", StatusCode::UNAUTHORIZED))
+    } else {
+        eprintln!("unhandled rejection: {:?}", err);
+        Ok(reply::with_status("INTERNAL_SERVER_ERROR", StatusCode::INTERNAL_SERVER_ERROR))
+    }
+}
 #[tokio::main]
 async fn main() {
     if std::env::var_os("RUST_LOG").is_none() {
@@ -121,6 +188,36 @@ VERGEN_SYSINFO_USER: {VERGEN_SYSINFO_USER}
         std::process::exit(0);
     }
 
+    let users = Arc::new(Mutex::new(HashMap::<String, User>::new()));
+    {
+        let mut users = users.lock().unwrap();
+        users.insert("Sam".to_string(), User {
+            username: "Sam".to_string(),
+            id: Uuid::new_v4(),
+            password: "password".to_string(),
+        });
+    }
+    let users = warp::any().map(move || Arc::clone(&users));
+
+    let sessions = Arc::new(Mutex::new(HashMap::<Uuid, Uuid>::new()));
+    let sessions = warp::any().map(move || Arc::clone(&sessions));
+
+    let login_route = warp::post()
+        .and(warp::path("login"))
+        .and(warp::body::json())
+        .and(users.clone())
+        .and(sessions.clone())
+        .then(login);
+
+    // let logged_in = warp::header::<Uuid>("SESSION_ID").and_then(|uuid: Uuid| async move { if uuid.is_max() { Ok(uuid) } else { Err(warp::reject())} });
+    let logged_in = warp::header::<Uuid>("SESSION_ID").and(sessions.clone()).and_then(is_logged_in);
+    let hello = warp::path!("hello" / String)
+        .and(logged_in)
+        .map(|name, uuid| format!("Hello, {}! [id: {uuid}]", name));
+    // let logout_route = warp::post()
+    //     .and(warp::path("logout"))
+    //     .and()
+
     log::info!(target: "remote_text_server::main", "Searching for repositories");
     let repositories = files::repos();
 
@@ -141,6 +238,8 @@ VERGEN_SYSINFO_USER: {VERGEN_SYSINFO_USER}
         // .map(|reply| warp::reply::with_header(reply, "Access-Control-Allow-Origin", "*"))
         .with(cors)
         .with(log);
+
+    let routes = login_route.or(hello);
 
     log::info!(target: "remote_text_server::main", "Running server");
     // Runs the server with the set up filters
