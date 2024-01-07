@@ -1,9 +1,9 @@
 {
   description = "The server-side software for Remote Text";
 
-  inputs.flockenzeit = {
-    url = "github:balsoft/Flockenzeit";
-    inputs.nixpkgs.follows = "nixpkgs";
+  inputs = {
+    # nixpkgs.url = "github:NixOS/nixpkgs";
+    flockenzeit.url = "github:balsoft/Flockenzeit";
   };
 
   outputs = { self, flockenzeit, nixpkgs, ... }:
