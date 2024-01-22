@@ -6,6 +6,9 @@
 , zlib
 , stdenv
 , darwin
+, pandoc
+, texlive
+, makeWrapper
 }:
 
 rustPlatform.buildRustPackage rec {
@@ -24,10 +27,19 @@ rustPlatform.buildRustPackage rec {
     libgit2
     openssl
     zlib
+    makeWrapper
   ] ++ lib.optionals stdenv.isDarwin [
     darwin.apple_sdk.frameworks.IOKit
     darwin.apple_sdk.frameworks.Security
   ];
+
+  postFixup = ''
+    wrapProgram $out/bin/remote-text-server \
+      --set PATH ${lib.makeBinPath [
+        pandoc
+        texlive
+      ]}
+  '';
 
   env = {
     OPENSSL_NO_VENDOR = true;

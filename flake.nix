@@ -13,7 +13,7 @@
         (system: gen nixpkgs.legacyPackages.${system});
     in {
       packages = forAllSystems (pkgs: rec {
-        remote-text-server = pkgs.callPackage ./. { };
+        remote-text-server = pkgs.callPackage ./. { texlive = pkgs.texliveFull; };
         default = remote-text-server;
         dockerImage = pkgs.dockerTools.buildImage {
           name = "remote-text-server";
@@ -23,5 +23,9 @@
           };
         };
       });
+      nixosModules = rec {
+        remote-text-server = import ./module.nix;
+        default = remote-text-server;
+      };
     };
 }
