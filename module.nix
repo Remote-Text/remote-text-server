@@ -11,6 +11,7 @@ in
     package = mkOption {
       default = pkgs.callPackage ./. { texlive = pkgs.texliveFull; };
       defaultText = "remote-text-server";
+      example = "inputs.remote-text-server.packages.${pkgs.system}.default.override { texlive = pkgs.texliveMinimal; }";
       description = "The remote-text-server package to use";
       type = types.package;
     };
