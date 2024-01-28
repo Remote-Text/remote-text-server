@@ -284,6 +284,7 @@ pub(crate) async fn delete_file(obj: IdOnly, repos: Arc<Mutex<HashMap<Uuid, Repo
     match fs::remove_dir_all(FILES_DIR().join(uuid_string)) {
         Ok(_) => {
             log::info!(target: "remote_text_server::delete_file", "[{}] Target directory successfully removed", &obj.id);
+            let _ = fs::remove_dir_all(PREVIEWS_DIR().join(uuid_string));
             return Ok(Box::new(StatusCode::OK))
         },
         Err(_) => {
