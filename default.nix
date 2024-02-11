@@ -11,13 +11,16 @@
 , makeWrapper
 }:
 
+let
+  package = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package;
+in
 rustPlatform.buildRustPackage rec {
-  pname = "remote-text-server";
-  version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
+  pname = package.name;
+  version = package.version;
 
   src = ./.;
 
-  cargoHash = "sha256-g6QiGH9eqC/mrGzeZOJ5wqm5V5D2xsDm4OOyzmE4sqM=";
+  cargoHash = "sha256-dGnOVvQ2nk3SHSBYjThkY5kRIBoQKKpCYvuRlPIpDyA=";
 
   nativeBuildInputs = [
     pkg-config
@@ -49,7 +52,7 @@ rustPlatform.buildRustPackage rec {
   meta = with lib; {
     description = "The server-side software for Remote Text";
     homepage = "https://github.com/Remote-Text/remote-text-server";
-    license = with licenses; [ ];
-    maintainers = with maintainers; [ ];
+    # license = with licenses; [ ];
+    # maintainers = with maintainers; [ ];
   };
 }
