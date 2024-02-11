@@ -297,6 +297,7 @@ pub(crate) async fn delete_file(obj: IdOnly, repos: Arc<Mutex<HashMap<Uuid, Repo
 /*
 // PREVIEW FILE //
 pdflatex -output-directory {} {}, this_commit_path, input_file_path
+latexmk -pdf -output-directory=dest/ -interaction=nonstopmode -halt-on-error source/file.tex
 
 TODO: Comment preview_file() functionality & general description
 TODO: do
@@ -387,9 +388,11 @@ pub(crate) async fn preview_file(obj: FileIDAndGitHash, repos: Arc<Mutex<HashMap
             let output_name = format!("{name_root}.pdf");
             log::trace!(target: "remote_text_server::preview_file", "[{}] Output name: {}", &obj.id, output_name);
 
-            let res = Command::new("pdflatex")
-                .args(["-output-directory", this_commit_path.canonicalize().unwrap().to_str().unwrap()])
-                .args(["-interaction", "nonstopmode"])
+            // latexmk -pdf -output-directory=dest/ -interaction=nonstopmode -halt-on-error source/file.tex
+            let res = Command::new("latexmk")
+                .arg("-pdf")
+                .arg(format!("-output-directory={}", &this_commit_path.canonicalize().unwrap().to_str().unwrap()))
+                .arg("-interaction=nonstopmode")
                 .arg("-halt-on-error")
                 .arg(format!("./files/{}/{filename}", &obj.id))
                 .stdout(Stdio::null())
