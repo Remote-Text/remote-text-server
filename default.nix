@@ -11,9 +11,12 @@
 , makeWrapper
 }:
 
+let
+  package = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package;
+in
 rustPlatform.buildRustPackage rec {
-  pname = "remote-text-server";
-  version = (builtins.fromTOML (builtins.readFile ./Cargo.toml)).package.version;
+  pname = package.name;
+  version = package.version;
 
   src = ./.;
 
@@ -49,7 +52,7 @@ rustPlatform.buildRustPackage rec {
   meta = with lib; {
     description = "The server-side software for Remote Text";
     homepage = "https://github.com/Remote-Text/remote-text-server";
-    license = with licenses; [ ];
-    maintainers = with maintainers; [ ];
+    # license = with licenses; [ ];
+    # maintainers = with maintainers; [ ];
   };
 }
