@@ -91,7 +91,7 @@ async fn create_file_too_large() {
     let repositories = repos();
     let filter = routes::create_file(repositories);
 
-    let bytes = vec![b'a' ; (1024 * 16) + 1];
+    let bytes = vec![b'a' ; (1024 * 1024 * 16) + 1];
     let body  = std::str::from_utf8(&bytes).unwrap();
     let body = format!("{}", body);
     let body = Some(body);
