@@ -463,6 +463,7 @@ fn convert_with_pandoc(uuid: &Uuid, name_root: &String, filename: &String, this_
     let res = Command::new("pandoc")
         .arg("--verbose")
         .arg("-s")
+        .arg("--sandbox")
         .args(["-o", this_commit_path.canonicalize().unwrap().join(output_name).to_str().unwrap()])
         .arg(FILES_DIR().join(&uuid.to_string()).join(filename))
         .output();
